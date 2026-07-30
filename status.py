@@ -10,6 +10,16 @@ from controlworkstation.health import check
 
 
 def main() -> int:
+    """Print infrastructure metadata and remote health for managed instances.
+
+    No instance is an informational, successful state.  Every discovered
+    instance receives an infrastructure section; a non-running or unaddressable
+    instance is immediately unhealthy because remote checks cannot run.  Running
+    hosts are probed for bootstrap state, required tools, and SSH, with detailed
+    failures displayed from the aggregate report.  The process returns nonzero
+    for unhealthy infrastructure or expected operational errors, making the
+    human-readable command equally useful in automation.
+    """
     try:
         config = Config()
         instances = find_instances(config)

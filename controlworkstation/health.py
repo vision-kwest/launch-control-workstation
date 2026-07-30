@@ -22,10 +22,25 @@ class HealthReport:
 
     @property
     def healthy(self) -> bool:
+        """Report aggregate success; individual output fields remain diagnostic.
+
+        :func:`check` records one error for every failed or empty probe, making
+        the absence of errors the single source of truth for overall health.
+        """
         return not self.errors
 
 
 def authenticate(host: str, config: Config) -> None:
+    """Prove that SSH key authentication can execute a command on ``host``.
+
+    Merely opening port 22 does not prove that the generated private key matches
+    the EC2 key pair.  This probe therefore requires both a zero exit status and
+    the exact sentinel ``READY`` before launch proceeds.
+
+    Raises:
+        RuntimeError: If SSH fails or returns output other than the sentinel.
+        TimeoutError: If the underlying SSH process exceeds the health timeout.
+    """
     result = run(host, config, "echo READY", timeout=config.health_check_timeout)
     if result.returncode or result.stdout.strip() != "READY":
         detail = result.stderr.strip() or result.stdout.strip() or f"exit status {result.returncode}"
@@ -33,7 +48,18 @@ def authenticate(host: str, config: Config) -> None:
 
 
 def wait_for_cloud_init(host: str, config: Config, *, interval: float = 10) -> str:
-    """Poll through temporary disconnects (including a cloud-init reboot)."""
+    """Wait for cloud-init, tolerating temporary SSH loss during its reboot.
+
+    Polling uses a monotonic deadline so wall-clock adjustments cannot lengthen
+    or shorten the configured timeout.  Command timeouts are considered
+    transient because cloud-init may reboot the host; explicit error/degraded
+    states fail immediately, while a successful ``status: done`` is returned to
+    the caller for diagnostics.
+
+    Raises:
+        RuntimeError: If cloud-init reports an error or degraded state.
+        TimeoutError: If no completed status arrives before the deadline.
+    """
     deadline = time.monotonic() + config.cloud_init_timeout
     last = "unreachable"
     while time.monotonic() < deadline:
@@ -53,6 +79,15 @@ def wait_for_cloud_init(host: str, config: Config, *, interval: float = 10) -> s
 
 
 def check(host: str, config: Config) -> HealthReport:
+    """Run the complete remote health suite and retain every probe's output.
+
+    Checks are sequential to keep SSH behavior and reported failures easy to
+    correlate.  Standard output is preferred, stderr is used as a fallback, and
+    empty output or a nonzero status fails any probe.  Cloud-init has the extra
+    semantic requirement that its output include ``status: done``.  All probes
+    run even after failures so status reporting can present one comprehensive
+    :class:`HealthReport` rather than stopping at the first problem.
+    """
     checks = {
         "ssh": "echo READY", "cloud_init": "cloud-init status",
         "tofu": "tofu version | head -n1", "git": "git --version",
