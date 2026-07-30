@@ -11,6 +11,14 @@ from controlworkstation.config import Config
 
 
 def main() -> int:
+    """Confirm, terminate, and wait for every active managed workstation.
+
+    All instances selected by the utility's management tags are displayed before any
+    destructive call.  Interactive users must explicitly confirm unless ``--yes``
+    was supplied for automation.  Waiting for EC2's terminated state makes successful
+    return a reliable cleanup signal; cancellation and an already-empty environment
+    are harmless status-0 outcomes.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     args = parser.parse_args()

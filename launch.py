@@ -3,19 +3,29 @@
 
 from __future__ import annotations
 
+import argparse
 import shutil
-import subprocess
 import sys
 import tempfile
+import time
 
 from controlworkstation import logging
 from controlworkstation.aws import AwsError, aws, default_network, describe_instance, ensure_key_pair, ensure_security_group, find_instances, tag_spec
 from controlworkstation.config import Config
+from controlworkstation.health import authenticate, check, wait_for_cloud_init
+from controlworkstation.ssh import connect
 from controlworkstation.userdata import render
 from controlworkstation.wait import ssh as wait_for_ssh
 
 
 def verify_tools() -> None:
+    """Validate local prerequisites before making any AWS-side changes.
+
+    Python is checked directly because the running interpreter cannot reliably be
+    discovered through ``PATH``.  AWS CLI and Git must be executable for provisioning
+    and the documented workflow.  Missing prerequisites raise ``RuntimeError`` early,
+    avoiding a partially created workstation.
+    """
     logging.info(f"Checking Python {sys.version_info.major}.{sys.version_info.minor}...")
     if sys.version_info < (3, 12):
         raise RuntimeError("Python 3.12 or newer is required")
@@ -26,6 +36,14 @@ def verify_tools() -> None:
 
 
 def launch(config: Config) -> str:
+    """Create or reuse the single tagged control workstation and return its ID.
+
+    AWS credentials are verified first.  An existing managed instance is reused and
+    started if necessary; otherwise the function resolves Ubuntu, default networking,
+    SSH resources, rendered cloud-init, storage, metadata, monitoring, and tags before
+    calling ``run-instances``.  Readiness waits intentionally live in ``main`` so this
+    function remains focused on idempotent resource creation.
+    """
     logging.info("Checking AWS credentials...")
     identity = aws(["sts", "get-caller-identity"], config)
     logging.ok(f"AWS authentication successful ({identity['Arn']}).")
@@ -67,9 +85,22 @@ def launch(config: Config) -> str:
 
 
 def main() -> int:
+    """Coordinate the complete launch, verification, reporting, and login flow.
+
+    The routine parses the opt-in login flag, measures each major phase, waits for
+    EC2 health and TCP SSH, proves authentication, waits for cloud-init, and runs the
+    shared health suite before printing connection choices.  Expected operational
+    exceptions are converted to a concise logged error and exit status 1; readiness
+    is never printed on a partial success.
+    """
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--login", action="store_true", help="open an SSH session after successful health checks")
+    args = parser.parse_args()
+    total_started = time.monotonic()
     try:
         config = Config()
         verify_tools()
+        creation_started = time.monotonic()
         instance_id = launch(config)
         logging.info("Waiting for instance-running...")
         aws(["ec2", "wait", "instance-running", "--instance-ids", instance_id], config, json_output=False)
@@ -77,19 +108,35 @@ def main() -> int:
         logging.info("Waiting for instance-status-ok...")
         aws(["ec2", "wait", "instance-status-ok", "--instance-ids", instance_id], config, json_output=False)
         logging.ok("Instance status checks passed.")
+        logging.ok(f"Instance creation completed in {time.monotonic() - creation_started:.1f}s.")
         instance = describe_instance(instance_id, config)
         if not instance.public_ip:
             raise AwsError("Instance is running but has no public IP address")
-        logging.info("Waiting for SSH...")
+        ssh_started = time.monotonic()
+        logging.info("Waiting for SSH availability...")
         wait_for_ssh(instance.public_ip, config.ssh_timeout)
-        logging.ok("SSH available.")
-        print("\n==================================\nControl Workstation Ready\n")
-        print(f"Instance:   {instance.instance_id}")
-        print(f"Public IP: {instance.public_ip}")
-        print(f"Public DNS: {instance.public_dns}")
-        print(f"AZ:         {instance.availability_zone}")
-        print(f"SSH:        ssh -i {config.public_key.with_suffix('')} ubuntu@{instance.public_ip}")
-        print("==================================")
+        authenticate(instance.public_ip, config)
+        logging.ok(f"SSH authentication verified. ({time.monotonic() - ssh_started:.1f}s)")
+        cloud_started = time.monotonic()
+        logging.info("Waiting for cloud-init to complete (reconnections are automatic)...")
+        wait_for_cloud_init(instance.public_ip, config)
+        logging.ok(f"cloud-init complete. ({time.monotonic() - cloud_started:.1f}s)")
+        report = check(instance.public_ip, config)
+        if not report.healthy:
+            raise RuntimeError("Health verification failed:\n  - " + "\n  - ".join(report.errors))
+        logging.ok("All workstation health checks passed.")
+        logging.ok(f"Total launch time: {time.monotonic() - total_started:.1f}s.")
+        print("\n----------------------------------\nControl Workstation Ready\n")
+        print(f"Instance ID: {instance.instance_id}")
+        print(f"Region:      {config.region}")
+        print(f"Public IP:   {instance.public_ip}")
+        print(f"Public DNS:  {instance.public_dns or '-'}")
+        print("\nOption 1 (continue from CloudShell)\n\n  python3 ssh.py")
+        print("\nOption 2 (connect from another computer)\n")
+        print(f"  ssh -i {config.public_key.with_suffix('')} ubuntu@{instance.public_ip}")
+        print("----------------------------------")
+        if args.login or config.auto_login:
+            return connect(instance.public_ip, config)
         return 0
     except (AwsError, RuntimeError, TimeoutError, ValueError) as exc:
         logging.error(str(exc))

@@ -10,6 +10,13 @@ from controlworkstation.ssh import connect
 
 
 def main() -> int:
+    """Open an interactive session to the newest running managed workstation.
+
+    Discovery is constrained by the same tags and region used by every command.  A
+    missing instance or public address is reported without invoking SSH; otherwise
+    the shared connection helper supplies the canonical identity and returns the
+    native client's exit status.  Expected operational errors become exit status 1.
+    """
     try:
         config = Config()
         running = find_instances(config, states=("running",))

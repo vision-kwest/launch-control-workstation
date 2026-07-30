@@ -22,4 +22,6 @@ apt-get install -y gh tofu
 systemctl enable --now ssh
 tofu version
 gh --version
+install -d -m 0755 /var/lib/launch-control-workstation
+date --iso-8601=seconds > /var/lib/launch-control-workstation/bootstrap-completed
 echo "Bootstrap complete. After first login, run: gh auth login"
