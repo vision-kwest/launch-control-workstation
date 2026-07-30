@@ -3,11 +3,13 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from controlworkstation.aws import tag_spec
+from controlworkstation.aws import Instance, tag_spec
 from controlworkstation.config import Config
+from controlworkstation.health import HealthReport, Check
 from controlworkstation.ssh import command
 from controlworkstation.userdata import render
 
@@ -43,6 +45,7 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(user_data.startswith("#cloud-config"))
         self.assertIn("      #!/usr/bin/env bash", user_data)
         self.assertNotIn("__BOOTSTRAP_SCRIPT__", user_data)
+        self.assertIn("condition: test -f /var/run/reboot-required", user_data)
 
     def test_ssh_command_uses_matching_private_key(self) -> None:
         """Confirm SSH derives the private path from the configured public key.
@@ -52,6 +55,44 @@ class CoreTests(unittest.TestCase):
         """
         config = Config(public_key=Path("/tmp/studio.pub"))
         self.assertEqual(command("192.0.2.1", config), ["ssh", "-i", "/tmp/studio", "-o", "IdentitiesOnly=yes", "ubuntu@192.0.2.1"])
+
+    def test_health_report_aggregates_all_categories(self) -> None:
+        """Overall health requires every category to pass."""
+        passed = Check("one", True, "ok")
+        failed = Check("two", False, "broken")
+        report = HealthReport(infrastructure=(passed,), system=(failed,))
+        self.assertFalse(report.healthy)
+        self.assertEqual(report.errors, ("two: broken",))
+
+    def test_instance_defaults_are_diagnostic_safe(self) -> None:
+        """An instance model can represent incomplete AWS addressing."""
+        instance = Instance("i-test", "pending")
+        self.assertEqual(instance.public_ip, "")
+
+    @patch("controlworkstation.health.run")
+    @patch("controlworkstation.health.socket.create_connection")
+    def test_remote_health_reports_timeouts_instead_of_raising(self, connection: Mock, ssh_run: Mock) -> None:
+        """A dashboard remains comprehensive when a remote probe times out."""
+        from controlworkstation.health import remote_health
+
+        connection.return_value.__enter__ = Mock()
+        connection.return_value.__exit__ = Mock(return_value=False)
+        ssh_run.side_effect = [Mock(returncode=0, stdout="AUTHENTICATED", stderr=""),
+                               *[TimeoutError("slow")] * 10]
+        report = remote_health("192.0.2.1", Config())
+        self.assertFalse(report.healthy)
+        self.assertIn("cloud-init: slow", report.errors)
+
+    @patch("controlworkstation.doctor.shutil.which", return_value=None)
+    def test_doctor_reports_every_check_without_aws(self, which: Mock) -> None:
+        """Missing AWS CLI does not hide the remaining required diagnostics."""
+        from controlworkstation.doctor import diagnose
+
+        with tempfile.TemporaryDirectory() as directory:
+            checks = diagnose(Config(public_key=Path(directory) / "id_ed25519.pub"))
+        names = {item.name for item in checks}
+        self.assertTrue({"AWS authentication", "SSH key", "Region", "Default VPC",
+                         "Quota sanity", "Existing Control Workstation"}.issubset(names))
 
 
 if __name__ == "__main__":

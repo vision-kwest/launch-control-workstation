@@ -1,0 +1,21 @@
+# Changelog
+
+All notable changes to this project are documented here.
+
+## 1.0.0 - 2026-07-30
+
+### Added
+
+- A unified health framework covering EC2, SSH, provisioning, developer tools,
+  disk, memory, uptime, and reboot state.
+- A read-only `doctor.py` preflight for local tools, AWS access, networking,
+  quota, keys, and existing workstation discovery.
+- End-to-end readiness verification with automatic reconnection across reboots.
+
+### Changed
+
+- Automated safe ED25519 key creation and EC2 fingerprint verification.
+- Expanded `status.py` into a complete workstation health dashboard.
+- Added phase timings, a multi-workflow completion screen, and optional login.
+- Declared the project production-ready and feature complete; future releases
+  are limited to bug fixes and maintenance.
