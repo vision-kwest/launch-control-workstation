@@ -109,14 +109,31 @@ def ensure_security_group(vpc_id: str, config: Config) -> str:
 
 
 def ensure_key_pair(config: Config) -> None:
+    private_key = config.public_key.with_suffix("")
+    if not private_key.exists() and not config.public_key.exists():
+        private_key.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        result = subprocess.run(["ssh-keygen", "-t", "ed25519", "-f", str(private_key),
+                                 "-N", "", "-C", "launch-control-workstation"],
+                                text=True, capture_output=True, check=False)
+        if result.returncode:
+            raise AwsError(f"Could not create SSH key: {result.stderr.strip()}")
+        print(f"Created a new ED25519 SSH key: {private_key} (public key: {config.public_key})")
+    elif not private_key.is_file() or not config.public_key.is_file():
+        raise AwsError(f"Incomplete SSH key pair: both {private_key} and {config.public_key} must exist; no files were overwritten")
+
     existing = aws(["ec2", "describe-key-pairs", "--filters", f"Name=key-name,Values={config.key_name}"], config)["KeyPairs"]
     if existing:
-        return
-    if not config.public_key.is_file():
-        raise AwsError(
-            f"SSH public key not found: {config.public_key}. Create it with "
-            "'ssh-keygen -t ed25519' or set LCW_PUBLIC_KEY."
-        )
-    aws(["ec2", "import-key-pair", "--key-name", config.key_name,
+        remote_fingerprint = existing[0].get("KeyFingerprint", "")
+    else:
+        imported = aws(["ec2", "import-key-pair", "--key-name", config.key_name,
          "--public-key-material", f"fileb://{config.public_key}",
          "--tag-specifications", tag_spec("key-pair", config.tags)], config)
+        remote_fingerprint = imported.get("KeyFingerprint", "")
+    fingerprint = subprocess.run(["ssh-keygen", "-lf", str(config.public_key)],
+                                 text=True, capture_output=True, check=False)
+    if fingerprint.returncode:
+        raise AwsError(f"Invalid SSH public key {config.public_key}: {fingerprint.stderr.strip()}")
+    local_fingerprint = fingerprint.stdout.split()[1]
+    if remote_fingerprint and local_fingerprint != remote_fingerprint:
+        raise AwsError(f"EC2 key pair '{config.key_name}' does not match {config.public_key} "
+                       f"(EC2 {remote_fingerprint}, local {local_fingerprint}). Use a different LCW_KEY_NAME or remove the stale EC2 key pair.")

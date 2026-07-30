@@ -31,7 +31,7 @@ class CoreTests(unittest.TestCase):
 
     def test_ssh_command_uses_matching_private_key(self) -> None:
         config = Config(public_key=Path("/tmp/studio.pub"))
-        self.assertEqual(command("192.0.2.1", config), ["ssh", "-i", "/tmp/studio", "ubuntu@192.0.2.1"])
+        self.assertEqual(command("192.0.2.1", config), ["ssh", "-i", "/tmp/studio", "-o", "IdentitiesOnly=yes", "ubuntu@192.0.2.1"])
 
 
 if __name__ == "__main__":

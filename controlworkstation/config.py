@@ -17,6 +17,17 @@ def _integer(name: str, default: int) -> int:
         raise ValueError(f"{name} must be an integer, got {value!r}") from exc
 
 
+def _boolean(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    if value.lower() in {"1", "true", "yes", "on"}:
+        return True
+    if value.lower() in {"0", "false", "no", "off"}:
+        return False
+    raise ValueError(f"{name} must be true or false, got {value!r}")
+
+
 @dataclass(frozen=True)
 class Config:
     region: str = field(default_factory=lambda: os.getenv("LCW_REGION", "us-east-1"))
@@ -26,6 +37,9 @@ class Config:
     project: str = field(default_factory=lambda: os.getenv("LCW_PROJECT", "StudioInfrastructure"))
     environment: str = field(default_factory=lambda: os.getenv("LCW_ENVIRONMENT", "development"))
     ssh_timeout: int = field(default_factory=lambda: _integer("LCW_SSH_TIMEOUT", 600))
+    cloud_init_timeout: int = field(default_factory=lambda: _integer("LCW_CLOUD_INIT_TIMEOUT", 1800))
+    health_check_timeout: int = field(default_factory=lambda: _integer("LCW_HEALTH_CHECK_TIMEOUT", 60))
+    auto_login: bool = field(default_factory=lambda: _boolean("LCW_AUTO_LOGIN", False))
     ssh_cidr: str = field(default_factory=lambda: os.getenv("LCW_SSH_CIDR", "0.0.0.0/0"))
     public_key: Path = field(default_factory=lambda: Path(os.getenv("LCW_PUBLIC_KEY", "~/.ssh/id_ed25519.pub")).expanduser())
     key_name: str = field(default_factory=lambda: os.getenv("LCW_KEY_NAME", "launch-control-workstation"))
