@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 from controlworkstation.aws import Instance, tag_spec
+from controlworkstation.cli import main as cli_main
 from controlworkstation.config import Config
 from controlworkstation.health import HealthReport, Check
 from controlworkstation.ssh import command
@@ -15,6 +16,19 @@ from controlworkstation.userdata import render
 
 
 class CoreTests(unittest.TestCase):
+    @patch("controlworkstation.cli.importlib.import_module")
+    def test_cli_dispatches_command_arguments(self, import_module: Mock) -> None:
+        """The unified executable forwards options to the selected command."""
+        command = Mock()
+        command.main.return_value = 7
+        import_module.return_value = command
+
+        result = cli_main(["launch", "--login"])
+
+        import_module.assert_called_once_with("launch")
+        command.main.assert_called_once_with(["--login"])
+        self.assertEqual(result, 7)
+
     def test_config_reads_environment_at_creation(self) -> None:
         """Prove default factories read overrides when each Config is created.
 

@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import tempfile
 import time
+from collections.abc import Sequence
 
 from controlworkstation import logging
 from controlworkstation.aws import AwsError, aws, default_network, describe_instance, ensure_key_pair, ensure_security_group, find_instances, tag_spec
@@ -99,7 +100,7 @@ def launch(config: Config) -> str:
     return instance_id
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Run the complete launch, readiness, health-check, and optional-login flow.
 
     After parsing CLI preferences, this orchestration function measures each
@@ -112,7 +113,7 @@ def main() -> int:
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--login", action="store_true", help="open an SSH session after successful health checks")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     total_started = time.monotonic()
     try:
         config = Config()
@@ -157,7 +158,7 @@ def main() -> int:
         print(f"Public IP:   {instance.public_ip}")
         print(f"Public DNS:  {instance.public_dns or '-'}")
         print("Health:      READY")
-        print("\nNext Steps\n\nOption 1\nContinue from this CloudShell\n\n  python3 ssh.py")
+        print("\nNext Steps\n\nOption 1\nContinue from this CloudShell\n\n  workstation ssh")
         print("\nOption 2\nConnect from another computer\n")
         print(f"  ssh -i {config.public_key.with_suffix('')} ubuntu@{instance.public_ip}")
         print("\nOption 3\nVS Code Remote SSH\n")

@@ -4,13 +4,14 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Sequence
 
 from controlworkstation import logging
 from controlworkstation.aws import AwsError, aws, find_instances
 from controlworkstation.config import Config
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Find, confirm, terminate, and wait for all managed workstations.
 
     The ``--yes`` flag supports automation; otherwise only explicit ``y`` or
@@ -22,7 +23,7 @@ def main() -> int:
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         config = Config()
         instances = find_instances(config)

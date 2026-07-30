@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Validate launch prerequisites without modifying AWS resources."""
 
+import argparse
+from collections.abc import Sequence
+
 from controlworkstation.config import Config
 from controlworkstation.doctor import diagnose
 from controlworkstation import logging
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
+    argparse.ArgumentParser(description=__doc__).parse_args(argv)
     try:
         checks = diagnose(Config())
     except (RuntimeError, TimeoutError, ValueError) as exc:
