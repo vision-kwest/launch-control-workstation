@@ -14,11 +14,11 @@ def info(message: str) -> None:
 
 
 def ok(message: str) -> None:
-    _write("OK", message)
+    _write("SUCCESS", message)
 
 
 def warn(message: str) -> None:
-    _write("WARN", message, error=True)
+    _write("WARNING", message, error=True)
 
 
 def error(message: str) -> None:

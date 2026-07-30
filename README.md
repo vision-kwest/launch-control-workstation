@@ -26,7 +26,7 @@ install Docker, graphics drivers, desktop software, or DCC tools.
 * Python 3.12+
 * AWS CLI v2 configured with credentials and permission to use EC2, SSM, and STS
 * Git
-* An SSH key pair (the default public key is `~/.ssh/id_ed25519.pub`)
+* `ssh` and `ssh-keygen` (a default ED25519 key is created automatically when neither key file exists)
 * A default VPC with at least one default subnet and an internet route
 
 Check authentication before launching with `aws sts get-caller-identity`.
@@ -40,10 +40,38 @@ python3 launch.py
 ```
 
 Launch is idempotent: it reuses a tagged active instance and starts it when it is
-stopped. The first run imports the configured public key and creates a tagged SSH
-security group. The launcher waits for EC2 health checks and port 22, but does not
-open an SSH session. Package installation may continue briefly after SSH starts;
-inspect it with `sudo cloud-init status --wait` after login.
+stopped. The first run creates (when necessary) and imports the configured key and
+creates a tagged SSH security group. Existing keys are never overwritten, and the
+local and EC2 key fingerprints must match. The launcher verifies SSH authentication,
+waits across any cloud-init reboot, and checks every installed tool before declaring
+the workstation ready. Add `--login` to open a session after verification; launch
+does not log in by default.
+
+## Typical Workflow
+
+```text
+AWS CloudShell
+      ↓
+   launch.py
+      ↓
+Control Workstation
+      ↓
+studio-infrastructure
+      ↓
+ GPU Workstations
+```
+
+CloudShell is an excellent zero-setup launch point, but its browser session has a
+short idle timeout and limited persistent storage. Many users therefore leave it
+immediately after provisioning and use the durable control workstation for their
+daily infrastructure work.
+
+Continue directly in CloudShell with `python3 ssh.py`, or copy the launcher's
+printed command to another computer that has the same private key:
+
+```bash
+ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>
+```
 
 The security group defaults to `0.0.0.0/0` for portability. Restrict
 `LCW_SSH_CIDR` to your trusted public address (for example `203.0.113.10/32`) for
@@ -62,6 +90,9 @@ All options are environment variables, so no tracked source edits are needed.
 | `LCW_PROJECT` | `StudioInfrastructure` | Project tag |
 | `LCW_ENVIRONMENT` | `development` | Environment tag |
 | `LCW_SSH_TIMEOUT` | `600` | port 22 timeout in seconds |
+| `LCW_CLOUD_INIT_TIMEOUT` | `1800` | cloud-init completion timeout in seconds |
+| `LCW_HEALTH_CHECK_TIMEOUT` | `60` | individual remote health-check timeout |
+| `LCW_AUTO_LOGIN` | `false` | open SSH automatically after a healthy launch |
 | `LCW_SSH_CIDR` | `0.0.0.0/0` | permitted source CIDR |
 | `LCW_PUBLIC_KEY` | `~/.ssh/id_ed25519.pub` | public key to import |
 | `LCW_KEY_NAME` | `launch-control-workstation` | EC2 key-pair name |
@@ -77,10 +108,10 @@ python3 ssh.py
 python3 destroy.py
 ```
 
-`status.py` reports lifecycle state, addressing, launch time, type, disk, region,
-and AZ. OpenTofu's version is intentionally reported as unavailable until remote
-command execution is added. On the first SSH login, run `gh auth login`; GitHub
-authentication is never performed automatically.
+`status.py` reports lifecycle and addressing details, verifies SSH and cloud-init,
+and displays the OpenTofu, Git, GitHub CLI, and Python versions plus the bootstrap
+completion time and an overall health summary. On the first SSH login, run
+`gh auth login`; GitHub authentication is never performed automatically.
 
 `destroy.py` finds every managed workstation by tags, asks for confirmation,
 terminates it, and waits. Automation can explicitly use `python3 destroy.py --yes`.
