@@ -1,0 +1,10 @@
+#cloud-config
+write_files:
+  - path: /usr/local/sbin/launch-control-bootstrap
+    owner: root:root
+    permissions: "0755"
+    content: |
+      __BOOTSTRAP_SCRIPT__
+runcmd:
+  - [bash, /usr/local/sbin/launch-control-bootstrap]
+final_message: "launch-control-workstation bootstrap complete"

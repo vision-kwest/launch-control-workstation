@@ -1,2 +1,117 @@
 # launch-control-workstation
-The purpose of this project is to create a lightweight EC2 Linux workstation that serves as an infrastructure management machine.
+
+`launch-control-workstation` provisions a persistent, lightweight Ubuntu EC2
+machine for managing a studio's infrastructure. It is an IaC control node—not a
+GPU, desktop, or artist workstation—and replaces the limited persistent storage
+available in AWS CloudShell.
+
+The utility uses Python's standard library and shells out to the AWS CLI. It does
+not require OpenTofu or `boto3` on the machine doing the provisioning.
+
+## Architecture
+
+The launcher selects Canonical's current Ubuntu 24.04 LTS x86-64 gp3 AMI from
+the public SSM parameter, then launches one instance in the default VPC and a
+default subnet. The root volume is encrypted, tagged, and deleted on termination.
+IMDSv2 is mandatory, detailed monitoring is enabled, and shutdown terminates the
+instance. A managed security group permits SSH from `LCW_SSH_CIDR`.
+
+Cloud-init embeds and executes `scripts/bootstrap.sh`, which installs a focused
+toolset: Git, common shell utilities, build tools, Python, GitHub CLI, SSH, and
+the latest stable OpenTofu package from its official apt repository. It does not
+install Docker, graphics drivers, desktop software, or DCC tools.
+
+## Requirements
+
+* Python 3.12+
+* AWS CLI v2 configured with credentials and permission to use EC2, SSM, and STS
+* Git
+* An SSH key pair (the default public key is `~/.ssh/id_ed25519.pub`)
+* A default VPC with at least one default subnet and an internet route
+
+Check authentication before launching with `aws sts get-caller-identity`.
+
+## Launch
+
+```bash
+git clone <repository-url>
+cd launch-control-workstation
+python3 launch.py
+```
+
+Launch is idempotent: it reuses a tagged active instance and starts it when it is
+stopped. The first run imports the configured public key and creates a tagged SSH
+security group. The launcher waits for EC2 health checks and port 22, but does not
+open an SSH session. Package installation may continue briefly after SSH starts;
+inspect it with `sudo cloud-init status --wait` after login.
+
+The security group defaults to `0.0.0.0/0` for portability. Restrict
+`LCW_SSH_CIDR` to your trusted public address (for example `203.0.113.10/32`) for
+production use.
+
+## Configuration
+
+All options are environment variables, so no tracked source edits are needed.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LCW_REGION` | `us-east-1` | AWS region |
+| `LCW_INSTANCE_TYPE` | `t3.large` | EC2 instance type |
+| `LCW_DISK_SIZE` | `100` | root gp3 volume size in GiB |
+| `LCW_OWNER` | local `$USER` | Owner tag |
+| `LCW_PROJECT` | `StudioInfrastructure` | Project tag |
+| `LCW_ENVIRONMENT` | `development` | Environment tag |
+| `LCW_SSH_TIMEOUT` | `600` | port 22 timeout in seconds |
+| `LCW_SSH_CIDR` | `0.0.0.0/0` | permitted source CIDR |
+| `LCW_PUBLIC_KEY` | `~/.ssh/id_ed25519.pub` | public key to import |
+| `LCW_KEY_NAME` | `launch-control-workstation` | EC2 key-pair name |
+| `LCW_SECURITY_GROUP` | `launch-control-workstation` | security-group name |
+
+Example: `LCW_OWNER=vfx-platform LCW_SSH_CIDR=203.0.113.10/32 python3 launch.py`.
+
+## Status, SSH, and destroy
+
+```bash
+python3 status.py
+python3 ssh.py
+python3 destroy.py
+```
+
+`status.py` reports lifecycle state, addressing, launch time, type, disk, region,
+and AZ. OpenTofu's version is intentionally reported as unavailable until remote
+command execution is added. On the first SSH login, run `gh auth login`; GitHub
+authentication is never performed automatically.
+
+`destroy.py` finds every managed workstation by tags, asks for confirmation,
+terminates it, and waits. Automation can explicitly use `python3 destroy.py --yes`.
+The tagged security group and imported EC2 key pair are retained for the next run.
+
+## Troubleshooting
+
+* **Credentials fail:** rerun `aws configure`, AWS SSO login, or refresh the
+  CloudShell session, then verify `aws sts get-caller-identity`.
+* **No default VPC/subnet:** recreate a default VPC or launch in a region where
+  one exists.
+* **SSH timeout:** verify the subnet route, network ACL, public IP, and
+  `LCW_SSH_CIDR`. Confirm your local firewall permits outbound TCP/22.
+* **Key mismatch:** the existing EC2 key-pair name must correspond to
+  `LCW_PUBLIC_KEY`; choose a new `LCW_KEY_NAME` if it does not.
+* **Bootstrap failure:** SSH in and inspect `/var/log/cloud-init-output.log` and
+  `/var/log/launch-control-bootstrap.log`.
+
+## Cost expectations
+
+AWS charges for the EC2 instance, a 100 GiB gp3 volume, detailed monitoring, and
+public IPv4 addressing; data transfer may also apply. Prices vary by region and
+change over time, so consult the AWS pricing pages and stop or destroy unused
+resources. A stopped instance still incurs EBS storage charges.
+
+## Roadmap
+
+This permanent management machine will eventually host `studio-infrastructure`,
+`studio-rez`, `studio-openusd`, and `studio-ci-images`, with optional GitHub
+runners, VS Code Remote, and Codex workflows.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
