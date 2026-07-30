@@ -40,7 +40,7 @@ def verify_tools(config: Config) -> None:
     logging.ok("Preflight diagnostics passed.")
 
 
-def launch(config: Config) -> str:
+def launch(config: Config, *, replace_key_pair: bool = False) -> str:
     """Reuse or create the managed EC2 workstation and return its instance ID.
 
     Credentials are proven first.  The newest existing managed instance is
@@ -60,8 +60,13 @@ def launch(config: Config) -> str:
     logging.ok(f"AWS authentication successful ({identity['Arn']}).")
 
     # Do this before reuse too: a launcher must never proceed with an unverified key.
-    ensure_key_pair(config)
     existing = find_instances(config)
+    if replace_key_pair and existing:
+        raise AwsError(
+            "--replace-key-pair cannot be used while a managed workstation exists; "
+            "destroy it first or choose a different LCW_KEY_NAME"
+        )
+    ensure_key_pair(config, replace=replace_key_pair)
     if existing:
         instance = existing[0]
         if instance.state == "stopped":
@@ -113,12 +118,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--login", action="store_true", help="open an SSH session after successful health checks")
+    parser.add_argument(
+        "--replace-key-pair",
+        action="store_true",
+        help="replace a mismatched EC2 key-pair registration (requires no managed workstation)",
+    )
     args = parser.parse_args(argv)
     total_started = time.monotonic()
     try:
         config = Config()
         verify_tools(config)
-        instance_id = launch(config)
+        instance_id = launch(config, replace_key_pair=args.replace_key_pair)
         running_started = time.monotonic()
         logging.info("Waiting for instance-running...")
         aws(["ec2", "wait", "instance-running", "--instance-ids", instance_id], config, json_output=False)

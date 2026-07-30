@@ -162,14 +162,16 @@ def ensure_security_group(vpc_id: str, config: Config) -> str:
     return group_id
 
 
-def ensure_key_pair(config: Config) -> None:
+def ensure_key_pair(config: Config, *, replace: bool = False) -> None:
     """Ensure matching local Ed25519 files and an EC2 key-pair registration.
 
     If neither local key file exists, ``ssh-keygen`` creates the pair without a
     passphrase for unattended launch and health checks.  A half-present pair is
     rejected to avoid overwriting or silently changing credentials.  The public
     key is imported into EC2 when necessary, then local and remote fingerprints
-    are compared so a reused EC2 key-pair name cannot lock the user out.
+    are compared so a reused EC2 key-pair name cannot lock the user out.  When
+    ``replace`` is explicitly requested, a mismatched EC2 registration is
+    deleted and re-imported; local key material is never changed.
 
     Raises:
         AwsError: If key generation or validation fails, local files are
@@ -198,6 +200,19 @@ def ensure_key_pair(config: Config) -> None:
     if fingerprint.returncode:
         raise AwsError(f"Invalid SSH public key {config.public_key}: {fingerprint.stderr.strip()}")
     local_fingerprint = fingerprint.stdout.split()[1]
-    if remote_fingerprint and local_fingerprint != remote_fingerprint:
-        raise AwsError(f"EC2 key pair '{config.key_name}' does not match {config.public_key} "
-                       f"(EC2 {remote_fingerprint}, local {local_fingerprint}). Use a different LCW_KEY_NAME or remove the stale EC2 key pair.")
+    # EC2 returns imported Ed25519 SHA-256 fingerprints as bare base64, while
+    # OpenSSH prefixes the same digest with ``SHA256:``.
+    comparable_remote = remote_fingerprint.removeprefix("SHA256:")
+    comparable_local = local_fingerprint.removeprefix("SHA256:")
+    if comparable_remote and comparable_local != comparable_remote:
+        if not replace:
+            raise AwsError(
+                f"EC2 key pair '{config.key_name}' does not match {config.public_key} "
+                f"(EC2 {remote_fingerprint}, local {local_fingerprint}). "
+                "Rerun with --replace-key-pair to replace only the EC2 registration, "
+                "or use a different LCW_KEY_NAME."
+            )
+        aws(["ec2", "delete-key-pair", "--key-name", config.key_name], config)
+        aws(["ec2", "import-key-pair", "--key-name", config.key_name,
+             "--public-key-material", f"fileb://{config.public_key}",
+             "--tag-specifications", tag_spec("key-pair", config.tags)], config)
