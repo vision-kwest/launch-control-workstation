@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
+import argparse
+from collections.abc import Sequence
+
 from controlworkstation import logging
 from controlworkstation.aws import AwsError, find_instances
 from controlworkstation.config import Config
 from controlworkstation.ssh import connect
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     """Open an interactive session to the newest running managed workstation.
 
     Discovery is restricted to running instances and returns newest-first.  The
@@ -17,6 +20,7 @@ def main() -> int:
     process's own exit status.  Discovery and configuration failures are rendered
     through the shared logger and normalized to status 1.
     """
+    argparse.ArgumentParser(description=__doc__).parse_args(argv)
     try:
         config = Config()
         running = find_instances(config, states=("running",))

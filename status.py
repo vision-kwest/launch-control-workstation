@@ -3,6 +3,9 @@
 
 from __future__ import annotations
 
+import argparse
+from collections.abc import Sequence
+
 from controlworkstation import logging
 from controlworkstation.aws import AwsError, find_instances
 from controlworkstation.config import Config
@@ -16,7 +19,8 @@ def section(title: str, checks: tuple[Check, ...]) -> None:
     print()
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
+    argparse.ArgumentParser(description=__doc__).parse_args(argv)
     try:
         config = Config()
         instances = find_instances(config)

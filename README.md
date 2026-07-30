@@ -30,14 +30,14 @@ install Docker, graphics drivers, desktop software, or DCC tools.
 * `ssh` and `ssh-keygen` (a default ED25519 key is created automatically when neither key file exists)
 * A default VPC with at least one default subnet and an internet route
 
-Run `python3 doctor.py` first. It performs read-only checks of local tools, AWS authentication, region networking, EC2 quota, SSH-key state, and existing managed workstations. It never modifies AWS resources.
+Run `./workstation doctor` first. It performs read-only checks of local tools, AWS authentication, region networking, EC2 quota, SSH-key state, and existing managed workstations. It never modifies AWS resources.
 
 ## Launch
 
 ```bash
 git clone <repository-url>
 cd launch-control-workstation
-python3 launch.py
+./workstation launch
 ```
 
 Launch is idempotent: it reuses a tagged active instance and starts it when it is
@@ -54,7 +54,7 @@ The Control Workstation separates the short-lived control plane from durable inf
 
 ## Typical CloudShell, laptop, and VS Code workflows
 
-Run `python3 doctor.py` and `python3 launch.py` from CloudShell, then use `python3 ssh.py` to continue there. Laptop users copy the printed `ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>` command (after securely making the same private key available). VS Code users copy the printed `Host control-workstation` block into `~/.ssh/config` and select that host with Remote SSH.
+Run `./workstation doctor` and `./workstation launch` from CloudShell, then use `./workstation ssh` to continue there. Laptop users copy the printed `ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>` command (after securely making the same private key available). VS Code users copy the printed `Host control-workstation` block into `~/.ssh/config` and select that host with Remote SSH.
 
 ## Typical Workflow
 
@@ -75,7 +75,7 @@ short idle timeout and limited persistent storage. Many users therefore leave it
 immediately after provisioning and use the durable control workstation for their
 daily infrastructure work.
 
-Continue directly in CloudShell with `python3 ssh.py`, or copy the launcher's
+Continue directly in CloudShell with `./workstation ssh`, or copy the launcher's
 printed command to another computer that has the same private key:
 
 ```bash
@@ -107,14 +107,14 @@ All options are environment variables, so no tracked source edits are needed.
 | `LCW_KEY_NAME` | `launch-control-workstation` | EC2 key-pair name |
 | `LCW_SECURITY_GROUP` | `launch-control-workstation` | security-group name |
 
-Example: `LCW_OWNER=vfx-platform LCW_SSH_CIDR=203.0.113.10/32 python3 launch.py`.
+Example: `LCW_OWNER=vfx-platform LCW_SSH_CIDR=203.0.113.10/32 ./workstation launch`.
 
 ## Status, SSH, and destroy
 
 ```bash
-python3 status.py
-python3 ssh.py
-python3 destroy.py
+./workstation status
+./workstation ssh
+./workstation destroy
 ```
 
 `status.py` reports lifecycle and addressing details, verifies SSH and cloud-init,
@@ -122,8 +122,8 @@ and displays the OpenTofu, Git, GitHub CLI, and Python versions plus the bootstr
 completion time and an overall health summary. On the first SSH login, run
 `gh auth login`; GitHub authentication is never performed automatically.
 
-`destroy.py` finds every managed workstation by tags, asks for confirmation,
-terminates it, and waits. Automation can explicitly use `python3 destroy.py --yes`.
+`workstation destroy` finds every managed workstation by tags, asks for confirmation,
+terminates it, and waits. Automation can explicitly use `./workstation destroy --yes`.
 The tagged security group and imported EC2 key pair are retained for the next run.
 
 ## Troubleshooting
