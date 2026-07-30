@@ -134,8 +134,11 @@ The tagged security group and imported EC2 key pair are retained for the next ru
   one exists.
 * **SSH timeout:** verify the subnet route, network ACL, public IP, and
   `LCW_SSH_CIDR`. Confirm your local firewall permits outbound TCP/22.
-* **Key mismatch:** the existing EC2 key-pair name must correspond to
-  `LCW_PUBLIC_KEY`; choose a new `LCW_KEY_NAME` if it does not.
+* **Key mismatch:** if no managed workstation exists, run
+  `./workstation launch --replace-key-pair` to replace the stale EC2 registration
+  with `LCW_PUBLIC_KEY`. The local private key is not changed. If a managed
+  workstation still exists, destroy it first or choose a new `LCW_KEY_NAME` so
+  the launcher cannot accidentally make an existing workstation inaccessible.
 * **Bootstrap failure:** SSH in and inspect `/var/log/cloud-init-output.log` and
   `/var/log/launch-control-bootstrap.log`.
 

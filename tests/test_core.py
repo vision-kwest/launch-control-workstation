@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from controlworkstation.aws import Instance, tag_spec
+from controlworkstation.aws import Instance, ensure_key_pair, tag_spec
 from controlworkstation.cli import main as cli_main
 from controlworkstation.config import Config
 from controlworkstation.health import HealthReport, Check
@@ -48,6 +48,46 @@ class CoreTests(unittest.TestCase):
         """
         value = json.loads(tag_spec("instance", {"Owner": "Studio Ops"}))
         self.assertEqual(value["Tags"], [{"Key": "Owner", "Value": "Studio Ops"}])
+
+    @patch("controlworkstation.aws.run")
+    @patch("controlworkstation.aws.aws")
+    def test_key_pair_accepts_aws_bare_sha256_fingerprint(self, aws_call: Mock, run_call: Mock) -> None:
+        """AWS's bare digest and OpenSSH's prefixed digest compare equally."""
+        aws_call.return_value = {"KeyPairs": [{"KeyFingerprint": "same-digest="}]}
+        run_call.return_value = Mock(returncode=0, stdout="256 SHA256:same-digest= key (ED25519)\n", stderr="")
+
+        with tempfile.TemporaryDirectory() as directory:
+            public_key = Path(directory) / "id_ed25519.pub"
+            public_key.write_text("ssh-ed25519 test\n")
+            public_key.with_suffix("").write_text("private")
+            ensure_key_pair(Config(public_key=public_key))
+
+        aws_call.assert_called_once()
+
+    @patch("controlworkstation.aws.run")
+    @patch("controlworkstation.aws.aws")
+    def test_replace_key_pair_reimports_mismatched_registration(self, aws_call: Mock, run_call: Mock) -> None:
+        """An explicit repair replaces only the stale EC2 registration."""
+        aws_call.side_effect = [
+            {"KeyPairs": [{"KeyFingerprint": "remote-fingerprint"}]},
+            "",
+            {"KeyFingerprint": "local-fingerprint"},
+        ]
+        run_call.return_value = Mock(returncode=0, stdout="256 local-fingerprint key (ED25519)\n", stderr="")
+
+        with tempfile.TemporaryDirectory() as directory:
+            public_key = Path(directory) / "id_ed25519.pub"
+            public_key.write_text("ssh-ed25519 test\n")
+            public_key.with_suffix("").write_text("private")
+            config = Config(public_key=public_key, key_name="workstation-test")
+            ensure_key_pair(config, replace=True)
+
+        self.assertEqual(aws_call.call_args_list[1].args[0], [
+            "ec2", "delete-key-pair", "--key-name", "workstation-test",
+        ])
+        self.assertEqual(aws_call.call_args_list[2].args[0][:4], [
+            "ec2", "import-key-pair", "--key-name", "workstation-test",
+        ])
 
     def test_cloud_init_embeds_bootstrap(self) -> None:
         """Verify rendering inserts an indented script and removes its marker.
