@@ -1,6 +1,6 @@
 # launch-control-workstation
 
-`launch-control-workstation` provisions a persistent, lightweight Ubuntu EC2
+`launch-control-workstation` **v1.0.0** is a production-ready, feature-complete utility that provisions a persistent, lightweight Ubuntu EC2
 machine for managing a studio's infrastructure. It is an IaC control node—not a
 GPU, desktop, or artist workstation—and replaces the limited persistent storage
 available in AWS CloudShell.
@@ -23,13 +23,14 @@ install Docker, graphics drivers, desktop software, or DCC tools.
 
 ## Requirements
 
-* Python 3.12+
-* AWS CLI v2 configured with credentials and permission to use EC2, SSM, and STS
+* Python 3.10+
+* AWS CLI v2 configured with credentials and permission to use EC2, SSM, STS,
+  and read the EC2 Service Quotas API
 * Git
 * `ssh` and `ssh-keygen` (a default ED25519 key is created automatically when neither key file exists)
 * A default VPC with at least one default subnet and an internet route
 
-Check authentication before launching with `aws sts get-caller-identity`.
+Run `python3 doctor.py` first. It performs read-only checks of local tools, AWS authentication, region networking, EC2 quota, SSH-key state, and existing managed workstations. It never modifies AWS resources.
 
 ## Launch
 
@@ -46,6 +47,14 @@ local and EC2 key fingerprints must match. The launcher verifies SSH authenticat
 waits across any cloud-init reboot, and checks every installed tool before declaring
 the workstation ready. Add `--login` to open a session after verification; launch
 does not log in by default.
+
+## Why the Control Workstation exists
+
+The Control Workstation separates the short-lived control plane from durable infrastructure operations. AWS CloudShell is ideal for authentication and launching, but its short idle timeout and constrained persistence make it a poor place for long-running stateful IaC workflows. OpenTofu is therefore intentionally installed and executed on the Control Workstation—not in CloudShell—where configuration, state access, logs, and operator sessions remain stable.
+
+## Typical CloudShell, laptop, and VS Code workflows
+
+Run `python3 doctor.py` and `python3 launch.py` from CloudShell, then use `python3 ssh.py` to continue there. Laptop users copy the printed `ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>` command (after securely making the same private key available). VS Code users copy the printed `Host control-workstation` block into `~/.ssh/config` and select that host with Remote SSH.
 
 ## Typical Workflow
 
@@ -137,11 +146,9 @@ public IPv4 addressing; data transfer may also apply. Prices vary by region and
 change over time, so consult the AWS pricing pages and stop or destroy unused
 resources. A stopped instance still incurs EBS storage charges.
 
-## Roadmap
+## Release status
 
-This permanent management machine will eventually host `studio-infrastructure`,
-`studio-rez`, `studio-openusd`, and `studio-ci-images`, with optional GitHub
-runners, VS Code Remote, and Codex workflows.
+Version 1.0.0 is feature complete. Future development is limited to bug fixes and maintenance. See [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

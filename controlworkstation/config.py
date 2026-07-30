@@ -65,7 +65,7 @@ class Config:
     public_key: Path = field(default_factory=lambda: Path(os.getenv("LCW_PUBLIC_KEY", "~/.ssh/id_ed25519.pub")).expanduser())
     key_name: str = field(default_factory=lambda: os.getenv("LCW_KEY_NAME", "launch-control-workstation"))
     security_group_name: str = field(default_factory=lambda: os.getenv("LCW_SECURITY_GROUP", "launch-control-workstation"))
-    version: str = "0.1"
+    version: str = "1.0.0"
 
     @property
     def tags(self) -> dict[str, str]:

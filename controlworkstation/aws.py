@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-import subprocess
 from typing import Any, Sequence
 
 from .config import Config
+from .process import run
 
 
 class AwsError(RuntimeError):
@@ -31,7 +31,7 @@ def aws(args: Sequence[str], config: Config, *, json_output: bool = True) -> Any
     command = ["aws", *args, "--region", config.region, "--no-cli-pager"]
     if json_output:
         command.extend(["--output", "json"])
-    result = subprocess.run(command, text=True, capture_output=True, check=False)
+    result = run(command)
     if result.returncode:
         detail = result.stderr.strip() or result.stdout.strip() or "unknown AWS CLI error"
         raise AwsError(f"Command failed: {' '.join(command)}\n{detail}")
@@ -65,6 +65,7 @@ class Instance:
     availability_zone: str = ""
     launch_time: str = ""
     instance_type: str = ""
+    key_name: str = ""
     disk_size: int | None = None
 
 
@@ -98,7 +99,8 @@ def find_instances(config: Config, *, states: Sequence[str] = ("pending", "runni
                 item["InstanceId"], item["State"]["Name"],
                 item.get("PublicIpAddress", ""), item.get("PublicDnsName", ""),
                 item.get("Placement", {}).get("AvailabilityZone", ""),
-                item.get("LaunchTime", ""), item.get("InstanceType", ""), disk_size,
+                item.get("LaunchTime", ""), item.get("InstanceType", ""),
+                item.get("KeyName", ""), disk_size,
             ))
     return sorted(found, key=lambda instance: instance.launch_time, reverse=True)
 
@@ -176,9 +178,8 @@ def ensure_key_pair(config: Config) -> None:
     private_key = config.public_key.with_suffix("")
     if not private_key.exists() and not config.public_key.exists():
         private_key.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-        result = subprocess.run(["ssh-keygen", "-t", "ed25519", "-f", str(private_key),
-                                 "-N", "", "-C", "launch-control-workstation"],
-                                text=True, capture_output=True, check=False)
+        result = run(["ssh-keygen", "-t", "ed25519", "-f", str(private_key),
+                      "-N", "", "-C", "launch-control-workstation"])
         if result.returncode:
             raise AwsError(f"Could not create SSH key: {result.stderr.strip()}")
         print(f"Created a new ED25519 SSH key: {private_key} (public key: {config.public_key})")
@@ -193,8 +194,7 @@ def ensure_key_pair(config: Config) -> None:
          "--public-key-material", f"fileb://{config.public_key}",
          "--tag-specifications", tag_spec("key-pair", config.tags)], config)
         remote_fingerprint = imported.get("KeyFingerprint", "")
-    fingerprint = subprocess.run(["ssh-keygen", "-lf", str(config.public_key)],
-                                 text=True, capture_output=True, check=False)
+    fingerprint = run(["ssh-keygen", "-lf", str(config.public_key)])
     if fingerprint.returncode:
         raise AwsError(f"Invalid SSH public key {config.public_key}: {fingerprint.stderr.strip()}")
     local_fingerprint = fingerprint.stdout.split()[1]

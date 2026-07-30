@@ -4,21 +4,20 @@
 from __future__ import annotations
 
 import argparse
-import shutil
-import sys
 import tempfile
 import time
 
 from controlworkstation import logging
 from controlworkstation.aws import AwsError, aws, default_network, describe_instance, ensure_key_pair, ensure_security_group, find_instances, tag_spec
 from controlworkstation.config import Config
-from controlworkstation.health import authenticate, check, wait_for_cloud_init
+from controlworkstation.doctor import diagnose
+from controlworkstation.health import authenticate, injected_key_health, wait_for_cloud_init, wait_until_healthy
 from controlworkstation.ssh import connect
 from controlworkstation.userdata import render
 from controlworkstation.wait import ssh as wait_for_ssh
 
 
-def verify_tools() -> None:
+def verify_tools(config: Config) -> None:
     """Validate local prerequisites before making any AWS-side changes.
 
     Python is checked explicitly because the application relies on modern type
@@ -27,16 +26,17 @@ def verify_tools() -> None:
     partially provisioned infrastructure after a later subprocess failure.
 
     Raises:
-        RuntimeError: If Python is older than 3.12 or a required executable is
+        RuntimeError: If Python is older than 3.10 or a required executable is
             unavailable.
     """
-    logging.info(f"Checking Python {sys.version_info.major}.{sys.version_info.minor}...")
-    if sys.version_info < (3, 12):
-        raise RuntimeError("Python 3.12 or newer is required")
-    for executable in ("aws", "git"):
-        if not shutil.which(executable):
-            raise RuntimeError(f"Required executable '{executable}' was not found in PATH")
-    logging.ok("Python, AWS CLI, and Git are available.")
+    logging.info("Running preflight diagnostics...")
+    checks = diagnose(config)
+    # A completely absent pair passes diagnostics because launch creates it;
+    # incomplete, invalid, or insecure existing key material remains fatal.
+    failures = [item for item in checks if not item.passed]
+    if failures:
+        raise RuntimeError("Preflight failed:\n  - " + "\n  - ".join(f"{x.name}: {x.detail}" for x in failures))
+    logging.ok("Preflight diagnostics passed.")
 
 
 def launch(config: Config) -> str:
@@ -58,6 +58,8 @@ def launch(config: Config) -> str:
     identity = aws(["sts", "get-caller-identity"], config)
     logging.ok(f"AWS authentication successful ({identity['Arn']}).")
 
+    # Do this before reuse too: a launcher must never proceed with an unverified key.
+    ensure_key_pair(config)
     existing = find_instances(config)
     if existing:
         instance = existing[0]
@@ -68,15 +70,16 @@ def launch(config: Config) -> str:
             logging.ok(f"Reusing existing {instance.state} instance {instance.instance_id}.")
         return instance.instance_id
 
+    ami_started = time.monotonic()
     logging.info("Locating the latest Ubuntu 24.04 LTS x86_64 AMI...")
     parameter = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
     ami = aws(["ssm", "get-parameter", "--name", parameter], config)["Parameter"]["Value"]
-    logging.ok(f"Using AMI {ami}.")
+    logging.ok(f"Using AMI {ami}. ({time.monotonic() - ami_started:.1f}s)")
 
     vpc_id, subnet_id = default_network(config)
     group_id = ensure_security_group(vpc_id, config)
-    ensure_key_pair(config)
     logging.info("Creating EC2 instance...")
+    create_started = time.monotonic()
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".yaml") as user_data:
         user_data.write(render())
         user_data.flush()
@@ -91,7 +94,9 @@ def launch(config: Config) -> str:
             "--tag-specifications", tag_spec("instance", config.tags), tag_spec("volume", config.tags),
             "--user-data", f"file://{user_data.name}",
         ], config)
-    return data["Instances"][0]["InstanceId"]
+    instance_id = data["Instances"][0]["InstanceId"]
+    logging.ok(f"Created EC2 instance {instance_id}. ({time.monotonic() - create_started:.1f}s)")
+    return instance_id
 
 
 def main() -> int:
@@ -111,42 +116,56 @@ def main() -> int:
     total_started = time.monotonic()
     try:
         config = Config()
-        verify_tools()
-        creation_started = time.monotonic()
+        verify_tools(config)
         instance_id = launch(config)
+        running_started = time.monotonic()
         logging.info("Waiting for instance-running...")
         aws(["ec2", "wait", "instance-running", "--instance-ids", instance_id], config, json_output=False)
-        logging.ok("Instance running.")
+        logging.ok(f"Instance running. ({time.monotonic() - running_started:.1f}s)")
+        status_started = time.monotonic()
         logging.info("Waiting for instance-status-ok...")
         aws(["ec2", "wait", "instance-status-ok", "--instance-ids", instance_id], config, json_output=False)
-        logging.ok("Instance status checks passed.")
-        logging.ok(f"Instance creation completed in {time.monotonic() - creation_started:.1f}s.")
+        logging.ok(f"Instance status checks passed. ({time.monotonic() - status_started:.1f}s)")
         instance = describe_instance(instance_id, config)
         if not instance.public_ip:
             raise AwsError("Instance is running but has no public IP address")
+        injected_key = injected_key_health(instance, config)
+        if not injected_key.passed:
+            raise RuntimeError(f"Incorrect SSH key injected into {instance.instance_id}: "
+                               f"expected {config.key_name}, found {injected_key.detail}")
         ssh_started = time.monotonic()
         logging.info("Waiting for SSH availability...")
         wait_for_ssh(instance.public_ip, config.ssh_timeout)
-        authenticate(instance.public_ip, config)
+        authentication = authenticate(instance.public_ip, config)
+        if not authentication.passed:
+            raise RuntimeError(f"SSH authentication failed: {authentication.detail}")
         logging.ok(f"SSH authentication verified. ({time.monotonic() - ssh_started:.1f}s)")
         cloud_started = time.monotonic()
         logging.info("Waiting for cloud-init to complete (reconnections are automatic)...")
         wait_for_cloud_init(instance.public_ip, config)
         logging.ok(f"cloud-init complete. ({time.monotonic() - cloud_started:.1f}s)")
-        report = check(instance.public_ip, config)
-        if not report.healthy:
-            raise RuntimeError("Health verification failed:\n  - " + "\n  - ".join(report.errors))
+        health_started = time.monotonic()
+        logging.info("Waiting for all workstation health checks...")
+        report = wait_until_healthy(instance, config)
+        logging.ok(f"Health checks passed. ({time.monotonic() - health_started:.1f}s)")
         logging.ok("All workstation health checks passed.")
         logging.ok(f"Total launch time: {time.monotonic() - total_started:.1f}s.")
-        print("\n----------------------------------\nControl Workstation Ready\n")
+        print("\n==================================================\n\nControl Workstation Ready\n")
         print(f"Instance ID: {instance.instance_id}")
         print(f"Region:      {config.region}")
+        print(f"Availability Zone: {instance.availability_zone}")
         print(f"Public IP:   {instance.public_ip}")
         print(f"Public DNS:  {instance.public_dns or '-'}")
-        print("\nOption 1 (continue from CloudShell)\n\n  python3 ssh.py")
-        print("\nOption 2 (connect from another computer)\n")
+        print("Health:      READY")
+        print("\nNext Steps\n\nOption 1\nContinue from this CloudShell\n\n  python3 ssh.py")
+        print("\nOption 2\nConnect from another computer\n")
         print(f"  ssh -i {config.public_key.with_suffix('')} ubuntu@{instance.public_ip}")
-        print("----------------------------------")
+        print("\nOption 3\nVS Code Remote SSH\n")
+        print("  Host control-workstation")
+        print(f"    HostName {instance.public_ip}")
+        print("    User ubuntu")
+        print(f"    IdentityFile {config.public_key.with_suffix('')}")
+        print("\n==================================================")
         if args.login or config.auto_login:
             return connect(instance.public_ip, config)
         return 0

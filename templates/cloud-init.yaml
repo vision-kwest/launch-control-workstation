@@ -8,3 +8,8 @@ write_files:
 runcmd:
   - [bash, /usr/local/sbin/launch-control-bootstrap]
 final_message: "launch-control-workstation bootstrap complete"
+power_state:
+  delay: now
+  mode: reboot
+  message: "Rebooting after Control Workstation bootstrap"
+  condition: test -f /var/run/reboot-required
