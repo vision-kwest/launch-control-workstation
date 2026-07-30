@@ -10,6 +10,13 @@ from controlworkstation.ssh import connect
 
 
 def main() -> int:
+    """Open an interactive session to the newest running managed workstation.
+
+    Discovery is restricted to running instances and returns newest-first.  The
+    command refuses to invoke SSH without a public IP, then propagates the SSH
+    process's own exit status.  Discovery and configuration failures are rendered
+    through the shared logger and normalized to status 1.
+    """
     try:
         config = Config()
         running = find_instances(config, states=("running",))

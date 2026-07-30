@@ -19,6 +19,17 @@ from controlworkstation.wait import ssh as wait_for_ssh
 
 
 def verify_tools() -> None:
+    """Validate local prerequisites before making any AWS-side changes.
+
+    Python is checked explicitly because the application relies on modern type
+    syntax and runtime behavior.  ``aws`` and ``git`` are located through PATH;
+    failing early gives operators a clear prerequisite error instead of leaving
+    partially provisioned infrastructure after a later subprocess failure.
+
+    Raises:
+        RuntimeError: If Python is older than 3.12 or a required executable is
+            unavailable.
+    """
     logging.info(f"Checking Python {sys.version_info.major}.{sys.version_info.minor}...")
     if sys.version_info < (3, 12):
         raise RuntimeError("Python 3.12 or newer is required")
@@ -29,6 +40,20 @@ def verify_tools() -> None:
 
 
 def launch(config: Config) -> str:
+    """Reuse or create the managed EC2 workstation and return its instance ID.
+
+    Credentials are proven first.  The newest existing managed instance is
+    reused, with stopped instances started in place.  Otherwise the current
+    Canonical Ubuntu 24.04 AMI is resolved through SSM, default networking and
+    access resources are ensured, and rendered cloud-init is passed through a
+    temporary file to ``run-instances``.  The new instance uses encrypted gp3
+    storage, IMDSv2, detailed monitoring, management tags, and termination on
+    guest shutdown.  This function starts provisioning but does not wait for EC2,
+    SSH, or bootstrap readiness; :func:`main` owns those lifecycle gates.
+
+    Raises:
+        AwsError: If authentication or any AWS/resource preparation step fails.
+    """
     logging.info("Checking AWS credentials...")
     identity = aws(["sts", "get-caller-identity"], config)
     logging.ok(f"AWS authentication successful ({identity['Arn']}).")
@@ -70,6 +95,16 @@ def launch(config: Config) -> str:
 
 
 def main() -> int:
+    """Run the complete launch, readiness, health-check, and optional-login flow.
+
+    After parsing CLI preferences, this orchestration function measures each
+    major phase, waits for both EC2 waiter states, resolves the public address,
+    verifies network and key-based SSH access, survives cloud-init reconnects,
+    and requires every health probe to pass.  It then prints reproducible login
+    instructions and optionally replaces the final success with the interactive
+    SSH client's exit status.  Expected operational failures are reported as a
+    concise error and converted to exit status 1.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--login", action="store_true", help="open an SSH session after successful health checks")
     args = parser.parse_args()

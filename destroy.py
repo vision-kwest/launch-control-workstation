@@ -11,6 +11,15 @@ from controlworkstation.config import Config
 
 
 def main() -> int:
+    """Find, confirm, terminate, and wait for all managed workstations.
+
+    The ``--yes`` flag supports automation; otherwise only explicit ``y`` or
+    ``yes`` confirmation proceeds.  An empty discovery result and a user
+    cancellation are both successful no-ops.  Termination is submitted for all
+    discovered IDs in one call, followed by the EC2 waiter so a success message
+    guarantees the instances reached the terminated state.  Known input,
+    configuration, and AWS failures are logged and returned as exit status 1.
+    """
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
     args = parser.parse_args()
