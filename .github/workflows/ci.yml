@@ -16,14 +16,15 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install test and build tools
-        run: python -m pip install --upgrade build pytest twine
+      - name: Install test and build tools and the package
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --upgrade build pytest twine
+          python -m pip install --editable .
       - name: Run unit tests
         run: python -m pytest
       - name: Verify package import
         run: python -c "import launch_control_workstation; print(launch_control_workstation.__version__)"
-        env:
-          PYTHONPATH: src
       - name: Build wheel and source distribution
         run: python -m build
       - name: Verify distribution metadata
