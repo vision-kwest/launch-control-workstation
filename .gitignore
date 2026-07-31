@@ -3,3 +3,14 @@ __pycache__/
 .venv/
 .pytest_cache/
 .DS_Store
+
+# Python packaging and coverage artifacts
+build/
+dist/
+*.egg-info/
+.eggs/
+.coverage
+coverage.xml
+htmlcov/
+.tox/
+.nox/

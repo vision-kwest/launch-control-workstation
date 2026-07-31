@@ -8,7 +8,7 @@ import sys
 from collections.abc import Sequence
 
 
-COMMANDS = ("launch", "doctor", "status", "ssh", "destroy")
+COMMANDS = ("launch", "doctor", "status", "ssh", "destroy", "version")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -23,5 +23,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     # existing command module (for example, ``workstation launch --help``).
     args = parser.parse_args(arguments[:1])
     command_args = arguments[1:]
-    command = importlib.import_module(args.command)
+    if args.command == "version":
+        from launch_control_workstation.version import __version__
+
+        if command_args:
+            parser.error("version does not accept arguments")
+        print(__version__)
+        return 0
+    command = importlib.import_module(f"launch_control_workstation.commands.{args.command}")
     return command.main(command_args)

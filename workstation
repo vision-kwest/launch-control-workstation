@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 """Control Workstation command-line entry point."""
 
-from controlworkstation.cli import main
+from pathlib import Path
+import sys
+
+# Keep the repository checkout executable before an editable installation.
+sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
+
+from launch_control_workstation.cli import main
 
 
 if __name__ == "__main__":

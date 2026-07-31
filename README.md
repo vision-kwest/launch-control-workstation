@@ -1,6 +1,6 @@
 # launch-control-workstation
 
-`launch-control-workstation` **v1.0.0** is a production-ready, feature-complete utility that provisions a persistent, lightweight Ubuntu EC2
+`launch-control-workstation` is a production-ready, feature-complete utility that provisions a persistent, lightweight Ubuntu EC2
 machine for managing a studio's infrastructure. It is an IaC control node—not a
 GPU, desktop, or artist workstation—and replaces the limited persistent storage
 available in AWS CloudShell.
@@ -23,21 +23,70 @@ install Docker, graphics drivers, desktop software, or DCC tools.
 
 ## Requirements
 
-* Python 3.10+
+* Python 3.12+
 * AWS CLI v2 configured with credentials and permission to use EC2, SSM, STS,
   and read the EC2 Service Quotas API
 * Git
 * `ssh` and `ssh-keygen` (a default ED25519 key is created automatically when neither key file exists)
 * A default VPC with at least one default subnet and an internet route
 
-Run `./workstation doctor` first. It performs read-only checks of local tools, AWS authentication, region networking, EC2 quota, SSH-key state, and existing managed workstations. It never modifies AWS resources.
+Run `workstation doctor` first. It performs read-only checks of local tools, AWS authentication, region networking, EC2 quota, SSH-key state, and existing managed workstations. It never modifies AWS resources.
+
+## Installation
+
+### End users
+
+[pipx](https://pipx.pypa.io/) is recommended because it installs the application
+in an isolated environment while exposing `workstation` globally:
+
+```bash
+pipx install launch-control-workstation
+workstation version
+workstation doctor
+```
+
+A regular pip installation is also supported:
+
+```bash
+python -m pip install launch-control-workstation
+```
+
+Upgrade an existing pipx installation with:
+
+```bash
+pipx upgrade launch-control-workstation
+```
+
+### Development
+
+Clone the repository and create an editable installation:
+
+```bash
+git clone https://github.com/Vision-Kwest/launch-control-workstation.git
+cd launch-control-workstation
+python -m pip install -e .
+workstation version
+workstation doctor
+```
+
+Install the test and packaging tools when contributing:
+
+```bash
+python -m pip install -e '.[dev]'
+python -m pytest
+python -m build
+python -m twine check dist/*
+```
+
+The project uses Hatchling because this is a pure-Python `src`-layout package
+with no compiled extensions or custom build steps. Package metadata follows PEP
+621 in `pyproject.toml`; the wheel includes the cloud-init template and bootstrap
+script used at runtime.
 
 ## Launch
 
 ```bash
-git clone <repository-url>
-cd launch-control-workstation
-./workstation launch
+workstation launch
 ```
 
 Launch is idempotent: it reuses a tagged active instance and starts it when it is
@@ -54,7 +103,7 @@ The Control Workstation separates the short-lived control plane from durable inf
 
 ## Typical CloudShell, laptop, and VS Code workflows
 
-Run `./workstation doctor` and `./workstation launch` from CloudShell, then use `./workstation ssh` to continue there. Laptop users copy the printed `ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>` command (after securely making the same private key available). VS Code users copy the printed `Host control-workstation` block into `~/.ssh/config` and select that host with Remote SSH.
+Run `workstation doctor` and `workstation launch` from CloudShell, then use `workstation ssh` to continue there. Laptop users copy the printed `ssh -i ~/.ssh/id_ed25519 ubuntu@<public-ip>` command (after securely making the same private key available). VS Code users copy the printed `Host control-workstation` block into `~/.ssh/config` and select that host with Remote SSH.
 
 ## Typical Workflow
 
@@ -75,7 +124,7 @@ short idle timeout and limited persistent storage. Many users therefore leave it
 immediately after provisioning and use the durable control workstation for their
 daily infrastructure work.
 
-Continue directly in CloudShell with `./workstation ssh`, or copy the launcher's
+Continue directly in CloudShell with `workstation ssh`, or copy the launcher's
 printed command to another computer that has the same private key:
 
 ```bash
@@ -107,14 +156,14 @@ All options are environment variables, so no tracked source edits are needed.
 | `LCW_KEY_NAME` | `launch-control-workstation` | EC2 key-pair name |
 | `LCW_SECURITY_GROUP` | `launch-control-workstation` | security-group name |
 
-Example: `LCW_OWNER=vfx-platform LCW_SSH_CIDR=203.0.113.10/32 ./workstation launch`.
+Example: `LCW_OWNER=vfx-platform LCW_SSH_CIDR=203.0.113.10/32 workstation launch`.
 
 ## Status, SSH, and destroy
 
 ```bash
-./workstation status
-./workstation ssh
-./workstation destroy
+workstation status
+workstation ssh
+workstation destroy
 ```
 
 `status.py` reports lifecycle and addressing details, verifies SSH and cloud-init,
@@ -123,7 +172,7 @@ completion time and an overall health summary. On the first SSH login, run
 `gh auth login`; GitHub authentication is never performed automatically.
 
 `workstation destroy` finds every managed workstation by tags, asks for confirmation,
-terminates it, and waits. Automation can explicitly use `./workstation destroy --yes`.
+terminates it, and waits. Automation can explicitly use `workstation destroy --yes`.
 The tagged security group and imported EC2 key pair are retained for the next run.
 
 ## Troubleshooting
@@ -135,7 +184,7 @@ The tagged security group and imported EC2 key pair are retained for the next ru
 * **SSH timeout:** verify the subnet route, network ACL, public IP, and
   `LCW_SSH_CIDR`. Confirm your local firewall permits outbound TCP/22.
 * **Key mismatch:** if no managed workstation exists, run
-  `./workstation launch --replace-key-pair` to replace the stale EC2 registration
+  `workstation launch --replace-key-pair` to replace the stale EC2 registration
   with `LCW_PUBLIC_KEY`. The local private key is not changed. If a managed
   workstation still exists, destroy it first or choose a new `LCW_KEY_NAME` so
   the launcher cannot accidentally make an existing workstation inaccessible.
@@ -149,9 +198,20 @@ public IPv4 addressing; data transfer may also apply. Prices vary by region and
 change over time, so consult the AWS pricing pages and stop or destroy unused
 resources. A stopped instance still incurs EBS storage charges.
 
-## Release status
+## Releases and publishing
 
-Version 1.0.0 is feature complete. Future development is limited to bug fixes and maintenance. See [CHANGELOG.md](CHANGELOG.md).
+Versions follow [Semantic Versioning](https://semver.org/), with the authoritative
+version stored in `src/launch_control_workstation/version.py`. Update that file
+and `CHANGELOG.md`, commit the change, and create a matching `vX.Y.Z` tag or
+GitHub Release. The release workflow builds and validates both a wheel and source
+distribution, attaches them to the GitHub Release, and publishes them to PyPI.
+
+PyPI publishing is configured for Trusted Publishing. A project maintainer must
+create a PyPI trusted publisher for this GitHub repository, the `release.yml`
+workflow, and the `pypi` environment. No repository secret is required. If the
+workflow is changed to token authentication, store the token as a GitHub Actions
+secret (for example `PYPI_API_TOKEN`) and never commit it. See
+[CHANGELOG.md](CHANGELOG.md) for release history.
 
 ## License
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 from pathlib import Path
@@ -7,16 +9,16 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from controlworkstation.aws import Instance, ensure_key_pair, tag_spec
-from controlworkstation.cli import main as cli_main
-from controlworkstation.config import Config
-from controlworkstation.health import HealthReport, Check
-from controlworkstation.ssh import command
-from controlworkstation.userdata import render
+from launch_control_workstation.aws import Instance, ensure_key_pair, tag_spec
+from launch_control_workstation.cli import main as cli_main
+from launch_control_workstation.config import Config
+from launch_control_workstation.health import HealthReport, Check
+from launch_control_workstation.ssh import command
+from launch_control_workstation.userdata import render
 
 
 class CoreTests(unittest.TestCase):
-    @patch("controlworkstation.cli.importlib.import_module")
+    @patch("launch_control_workstation.cli.importlib.import_module")
     def test_cli_dispatches_command_arguments(self, import_module: Mock) -> None:
         """The unified executable forwards options to the selected command."""
         command = Mock()
@@ -25,9 +27,19 @@ class CoreTests(unittest.TestCase):
 
         result = cli_main(["launch", "--login"])
 
-        import_module.assert_called_once_with("launch")
+        import_module.assert_called_once_with("launch_control_workstation.commands.launch")
         command.main.assert_called_once_with(["--login"])
         self.assertEqual(result, 7)
+
+    def test_cli_reports_authoritative_version(self) -> None:
+        """The version command reads the package's single version source."""
+        from launch_control_workstation import __version__
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            result = cli_main(["version"])
+        self.assertEqual(result, 0)
+        self.assertEqual(output.getvalue().strip(), __version__)
 
     def test_config_reads_environment_at_creation(self) -> None:
         """Prove default factories read overrides when each Config is created.
@@ -49,8 +61,8 @@ class CoreTests(unittest.TestCase):
         value = json.loads(tag_spec("instance", {"Owner": "Studio Ops"}))
         self.assertEqual(value["Tags"], [{"Key": "Owner", "Value": "Studio Ops"}])
 
-    @patch("controlworkstation.aws.run")
-    @patch("controlworkstation.aws.aws")
+    @patch("launch_control_workstation.aws.run")
+    @patch("launch_control_workstation.aws.aws")
     def test_key_pair_accepts_aws_bare_sha256_fingerprint(self, aws_call: Mock, run_call: Mock) -> None:
         """AWS's bare digest and OpenSSH's prefixed digest compare equally."""
         aws_call.return_value = {"KeyPairs": [{"KeyFingerprint": "same-digest="}]}
@@ -64,8 +76,8 @@ class CoreTests(unittest.TestCase):
 
         aws_call.assert_called_once()
 
-    @patch("controlworkstation.aws.run")
-    @patch("controlworkstation.aws.aws")
+    @patch("launch_control_workstation.aws.run")
+    @patch("launch_control_workstation.aws.aws")
     def test_replace_key_pair_reimports_mismatched_registration(self, aws_call: Mock, run_call: Mock) -> None:
         """An explicit repair replaces only the stale EC2 registration."""
         aws_call.side_effect = [
@@ -123,11 +135,11 @@ class CoreTests(unittest.TestCase):
         instance = Instance("i-test", "pending")
         self.assertEqual(instance.public_ip, "")
 
-    @patch("controlworkstation.health.run")
-    @patch("controlworkstation.health.socket.create_connection")
+    @patch("launch_control_workstation.health.run")
+    @patch("launch_control_workstation.health.socket.create_connection")
     def test_remote_health_reports_timeouts_instead_of_raising(self, connection: Mock, ssh_run: Mock) -> None:
         """A dashboard remains comprehensive when a remote probe times out."""
-        from controlworkstation.health import remote_health
+        from launch_control_workstation.health import remote_health
 
         connection.return_value.__enter__ = Mock()
         connection.return_value.__exit__ = Mock(return_value=False)
@@ -137,10 +149,10 @@ class CoreTests(unittest.TestCase):
         self.assertFalse(report.healthy)
         self.assertIn("cloud-init: slow", report.errors)
 
-    @patch("controlworkstation.doctor.shutil.which", return_value=None)
+    @patch("launch_control_workstation.doctor.shutil.which", return_value=None)
     def test_doctor_reports_every_check_without_aws(self, which: Mock) -> None:
         """Missing AWS CLI does not hide the remaining required diagnostics."""
-        from controlworkstation.doctor import diagnose
+        from launch_control_workstation.doctor import diagnose
 
         with tempfile.TemporaryDirectory() as directory:
             checks = diagnose(Config(public_key=Path(directory) / "id_ed25519.pub"))
