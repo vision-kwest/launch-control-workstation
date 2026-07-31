@@ -8,14 +8,14 @@ import tempfile
 import time
 from collections.abc import Sequence
 
-from controlworkstation import logging
-from controlworkstation.aws import AwsError, aws, default_network, describe_instance, ensure_key_pair, ensure_security_group, find_instances, tag_spec
-from controlworkstation.config import Config
-from controlworkstation.doctor import diagnose
-from controlworkstation.health import authenticate, injected_key_health, wait_for_cloud_init, wait_until_healthy
-from controlworkstation.ssh import connect
-from controlworkstation.userdata import render
-from controlworkstation.wait import ssh as wait_for_ssh
+from launch_control_workstation import logging
+from launch_control_workstation.aws import AwsError, aws, default_network, describe_instance, ensure_key_pair, ensure_security_group, find_instances, tag_spec
+from launch_control_workstation.config import Config
+from launch_control_workstation.doctor import diagnose
+from launch_control_workstation.health import authenticate, injected_key_health, wait_for_cloud_init, wait_until_healthy
+from launch_control_workstation.ssh import connect
+from launch_control_workstation.userdata import render
+from launch_control_workstation.wait import ssh as wait_for_ssh
 
 
 def verify_tools(config: Config) -> None:

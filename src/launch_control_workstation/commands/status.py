@@ -6,10 +6,10 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from controlworkstation import logging
-from controlworkstation.aws import AwsError, find_instances
-from controlworkstation.config import Config
-from controlworkstation.health import Check, check
+from launch_control_workstation import logging
+from launch_control_workstation.aws import AwsError, find_instances
+from launch_control_workstation.config import Config
+from launch_control_workstation.health import Check, check
 
 
 def section(title: str, checks: tuple[Check, ...]) -> None:

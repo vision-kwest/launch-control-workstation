@@ -6,9 +6,9 @@ from __future__ import annotations
 import argparse
 from collections.abc import Sequence
 
-from controlworkstation import logging
-from controlworkstation.aws import AwsError, aws, find_instances
-from controlworkstation.config import Config
+from launch_control_workstation import logging
+from launch_control_workstation.aws import AwsError, aws, find_instances
+from launch_control_workstation.config import Config
 
 
 def main(argv: Sequence[str] | None = None) -> int:
