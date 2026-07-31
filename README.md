@@ -36,25 +36,13 @@ Run `workstation doctor` first. It performs read-only checks of local tools, AWS
 
 ### End users
 
-[pipx](https://pipx.pypa.io/) is recommended because it installs the application
-in an isolated environment while exposing `workstation` globally:
+Install the latest version directly from the GitHub repository:
 
 ```bash
-pipx install launch-control-workstation
+python3 -m pip install --upgrade \
+  git+https://github.com/vision-kwest/launch-control-workstation.git
 workstation version
 workstation doctor
-```
-
-A regular pip installation is also supported:
-
-```bash
-python -m pip install launch-control-workstation
-```
-
-Upgrade an existing pipx installation with:
-
-```bash
-pipx upgrade launch-control-workstation
 ```
 
 ### Development
