@@ -5,7 +5,9 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import Mock, patch
 
@@ -18,6 +20,33 @@ from launch_control_workstation.userdata import render
 
 
 class CoreTests(unittest.TestCase):
+    def test_release_contract(self) -> None:
+        """Protect the version source and tag-gated PyPI publishing contract."""
+        root = Path(__file__).resolve().parents[1]
+        pyproject = tomllib.loads((root / "pyproject.toml").read_text())
+        workflow = (root / ".github/workflows/release.yml").read_text()
+        package_root = root / "src/launch_control_workstation"
+        version_assignments = [
+            path.relative_to(root)
+            for path in package_root.rglob("*.py")
+            if re.search(r"^__version__\s*=", path.read_text(), re.MULTILINE)
+        ]
+
+        self.assertEqual(pyproject["project"]["dynamic"], ["version"])
+        self.assertEqual(
+            pyproject["tool"]["hatch"]["version"]["path"],
+            "src/launch_control_workstation/version.py",
+        )
+        self.assertEqual(
+            version_assignments,
+            [Path("src/launch_control_workstation/version.py")],
+        )
+        self.assertIn('tags: ["v*"]', workflow)
+        self.assertIn("pypa/gh-action-pypi-publish@release/v1", workflow)
+        self.assertIn("id-token: write", workflow)
+        self.assertIn("distributed through PyPI using Trusted Publishing", workflow)
+        self.assertIn("pipx install launch-control-workstation", workflow)
+
     @patch("launch_control_workstation.cli.importlib.import_module")
     def test_cli_dispatches_command_arguments(self, import_module: Mock) -> None:
         """The unified executable forwards options to the selected command."""
