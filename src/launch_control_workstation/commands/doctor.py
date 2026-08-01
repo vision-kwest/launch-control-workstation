@@ -18,8 +18,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
     print("Control Workstation Doctor\n")
     for item in checks:
-        print(f"{'PASS' if item.passed else 'FAIL':4}  {item.name}: {item.detail}")
-    passed = all(item.passed for item in checks)
+        label = "PASS" if item.passed else ("WARN" if item.warning else "FAIL")
+        print(f"{label:4}  {item.name}: {item.detail}")
+    passed = all(item.passed or item.warning for item in checks)
     print(f"\nOverall: {'PASS' if passed else 'FAIL'}")
     return 0 if passed else 1
 

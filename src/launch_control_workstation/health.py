@@ -28,11 +28,12 @@ class HealthReport:
     connectivity: tuple[Check, ...] = ()
     provisioning: tuple[Check, ...] = ()
     tools: tuple[Check, ...] = ()
+    aws_authentication: tuple[Check, ...] = ()
     system: tuple[Check, ...] = ()
 
     @property
     def checks(self) -> tuple[Check, ...]:
-        return self.infrastructure + self.connectivity + self.provisioning + self.tools + self.system
+        return self.infrastructure + self.connectivity + self.provisioning + self.tools + self.aws_authentication + self.system
 
     @property
     def healthy(self) -> bool:
@@ -113,12 +114,17 @@ def remote_health(host: str, config: Config) -> HealthReport:
     tools = tuple(_remote(host, config, name, command) for name, command in (
         ("OpenTofu", "tofu version | head -n1"), ("Git", "git --version"),
         ("GitHub CLI", "gh --version | head -n1"), ("Python", "python3 --version")))
+    profile = _remote(host, config, "Instance Profile attached", "t=$(curl -fsS --max-time 2 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token) && curl -fsS --max-time 2 -H \"X-aws-ec2-metadata-token: $t\" http://169.254.169.254/latest/meta-data/iam/info | grep -q InstanceProfileArn && echo attached")
+    imds = _remote(host, config, "IMDS available", "t=$(curl -fsS --max-time 2 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token) && curl -fsS --max-time 2 -H \"X-aws-ec2-metadata-token: $t\" http://169.254.169.254/latest/meta-data/iam/security-credentials/ | head -n1")
+    credentials = _remote(host, config, "Temporary credentials", "aws configure list 2>/dev/null | grep -q 'iam-role' && echo 'IMDS role credentials'")
+    sts = _remote(host, config, "STS authentication", "env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN -u AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE=/dev/null aws sts get-caller-identity --output json")
     system = tuple(_remote(host, config, name, command) for name, command in (
         ("Uptime", "uptime -p"),
         ("Reboot pending", "if [ -e /var/run/reboot-required ]; then echo pending; exit 1; else echo not pending; fi"),
         ("Disk", "p=$(df -P / | awk 'NR==2 {gsub(/%/,\"\",$5); print $5}'); echo \"${p}% used\"; [ \"$p\" -lt 90 ]"),
         ("Memory", "a=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo); echo \"${a} MiB available\"; [ \"$a\" -ge 256 ]")))
-    return HealthReport(connectivity=(port, auth), provisioning=(cloud, bootstrap), tools=tools, system=system)
+    return HealthReport(connectivity=(port, auth), provisioning=(cloud, bootstrap), tools=tools,
+                        aws_authentication=(profile, imds, credentials, sts), system=system)
 
 
 def check(instance: Instance, config: Config) -> HealthReport:
@@ -129,7 +135,8 @@ def check(instance: Instance, config: Config) -> HealthReport:
                             connectivity=(Check("SSH port", False, "instance has no reachable public address"),))
     remote = remote_health(instance.public_ip, config)
     return HealthReport(infrastructure=infra, connectivity=remote.connectivity,
-                        provisioning=remote.provisioning, tools=remote.tools, system=remote.system)
+                        provisioning=remote.provisioning, tools=remote.tools,
+                        aws_authentication=remote.aws_authentication, system=remote.system)
 
 
 def wait_for_cloud_init(host: str, config: Config, *, interval: float = 10) -> str:

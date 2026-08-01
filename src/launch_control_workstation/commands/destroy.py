@@ -9,6 +9,7 @@ from collections.abc import Sequence
 from launch_control_workstation import logging
 from launch_control_workstation.aws import AwsError, aws, find_instances
 from launch_control_workstation.config import Config
+from launch_control_workstation.iam import cleanup
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -39,6 +40,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         aws(["ec2", "terminate-instances", "--instance-ids", *ids], config)
         aws(["ec2", "wait", "instance-terminated", "--instance-ids", *ids], config, json_output=False)
         logging.ok("Control workstation terminated.")
+        if cleanup(config):
+            logging.ok("IAM instance profile and role removed.")
         return 0
     except (AwsError, EOFError, ValueError) as exc:
         logging.error(str(exc))

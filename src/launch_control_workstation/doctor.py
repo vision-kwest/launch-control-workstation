@@ -9,14 +9,51 @@ from dataclasses import dataclass
 
 from .aws import AwsError, aws, default_network, find_instances
 from .config import Config
+from .iam import required_actions
 from .process import run
 
 
 @dataclass(frozen=True)
 class Diagnostic:
+    """One prerequisite result; warnings are informative and do not block launch."""
+
     name: str
     passed: bool
     detail: str
+    warning: bool = False
+
+
+def _principal_arn(identity: dict[str, object]) -> str:
+    """Convert an STS assumed-role ARN into the IAM role ARN simulation accepts."""
+    arn = str(identity.get("Arn", ""))
+    if ":assumed-role/" not in arn:
+        return arn
+    prefix, suffix = arn.split(":assumed-role/", 1)
+    return f"{prefix.replace(':sts:', ':iam:')}:role/{suffix.split('/', 1)[0]}"
+
+
+def _iam_permission_diagnostics(identity: dict[str, object], config: Config) -> tuple[Diagnostic, ...]:
+    """Simulate required IAM/profile actions without changing any AWS resource."""
+    actions = required_actions()
+    try:
+        data = aws(["iam", "simulate-principal-policy", "--policy-source-arn", _principal_arn(identity),
+                    "--action-names", *actions], config)
+        decisions = {item["EvalActionName"]: item["EvalDecision"]
+                     for item in data.get("EvaluationResults", [])}
+        iam_actions = actions[:5]
+        ec2_actions = actions[5:]
+        iam_ok = all(decisions.get(action) == "allowed" for action in iam_actions)
+        ec2_ok = all(decisions.get(action) == "allowed" for action in ec2_actions)
+        return (
+            Diagnostic("Create IAM resources", iam_ok,
+                       "allowed" if iam_ok else "missing: " + ", ".join(a for a in iam_actions if decisions.get(a) != "allowed"), not iam_ok),
+            Diagnostic("Attach instance profiles", ec2_ok,
+                       "allowed" if ec2_ok else "missing: " + ", ".join(a for a in ec2_actions if decisions.get(a) != "allowed"), not ec2_ok),
+        )
+    except AwsError as exc:
+        detail = "could not simulate current identity: " + str(exc).splitlines()[-1]
+        return (Diagnostic("Create IAM resources", False, detail, True),
+                Diagnostic("Attach instance profiles", False, detail, True))
 
 
 def diagnose(config: Config) -> tuple[Diagnostic, ...]:
@@ -48,17 +85,23 @@ def diagnose(config: Config) -> tuple[Diagnostic, ...]:
     if not shutil.which("aws"):
         unavailable = "AWS CLI unavailable"
         results.extend(Diagnostic(name, False, unavailable) for name in
-                       ("AWS authentication", "Region", "Default VPC", "Quota sanity",
+                       ("AWS authentication", "Current CloudShell credentials",
+                        "Create IAM resources", "Attach instance profiles",
+                        "Region", "Default VPC", "Quota sanity",
                         "Existing Control Workstation"))
         return tuple(results)
     try:
         identity = aws(["sts", "get-caller-identity"], config)
         results.append(Diagnostic("AWS authentication", True, identity.get("Arn", "authenticated")))
+        results.append(Diagnostic("Current CloudShell credentials", True, identity.get("Arn", "authenticated")))
+        results.extend(_iam_permission_diagnostics(identity, config))
     except AwsError as exc:
         results.append(Diagnostic("AWS authentication", False, str(exc).splitlines()[-1]))
         unavailable = "not checked because AWS authentication failed"
         results.extend(Diagnostic(name, False, unavailable) for name in
-                       ("Region", "Default VPC", "Quota sanity", "Existing Control Workstation"))
+                       ("Current CloudShell credentials", "Create IAM resources",
+                        "Attach instance profiles", "Region", "Default VPC",
+                        "Quota sanity", "Existing Control Workstation"))
         return tuple(results)
     try:
         aws(["ec2", "describe-regions", "--region-names", config.region], config)

@@ -16,16 +16,18 @@ from launch_control_workstation.cli import main as cli_main
 from launch_control_workstation.commands.launch import launch
 from launch_control_workstation.config import Config
 from launch_control_workstation.health import Check, HealthReport
+from launch_control_workstation.iam import MANAGED_POLICIES
 from launch_control_workstation.ssh import command
 from launch_control_workstation.userdata import render
 
 
 class CoreTests(unittest.TestCase):
     @patch("launch_control_workstation.commands.launch.ensure_key_pair", side_effect=RuntimeError("stop after key check"))
+    @patch("launch_control_workstation.commands.launch.ensure_iam")
     @patch("launch_control_workstation.commands.launch.find_instances", return_value=[])
     @patch("launch_control_workstation.commands.launch.aws", return_value={"Arn": "test-identity"})
     def test_launch_automatically_repairs_key_when_no_instance_exists(
-        self, aws_call: Mock, find: Mock, ensure: Mock,
+        self, aws_call: Mock, find: Mock, ensure_iam: Mock, ensure: Mock,
     ) -> None:
         """A new launch permits stale key registration repair without a flag."""
         with self.assertRaisesRegex(RuntimeError, "stop after key check"):
@@ -33,6 +35,11 @@ class CoreTests(unittest.TestCase):
 
         ensure.assert_called_once()
         self.assertTrue(ensure.call_args.kwargs["replace"])
+
+    def test_instance_role_avoids_administrator_access(self) -> None:
+        """The documented workload policies never grant blanket administrator access."""
+        self.assertNotIn("arn:aws:iam::aws:policy/AdministratorAccess", MANAGED_POLICIES)
+        self.assertEqual(len(MANAGED_POLICIES), 5)
 
     def test_release_contract(self) -> None:
         """Protect the version source and tag-gated PyPI publishing contract."""
@@ -200,7 +207,7 @@ class CoreTests(unittest.TestCase):
         connection.return_value.__enter__ = Mock()
         connection.return_value.__exit__ = Mock(return_value=False)
         ssh_run.side_effect = [Mock(returncode=0, stdout="AUTHENTICATED", stderr=""),
-                               *[TimeoutError("slow")] * 10]
+                               *[TimeoutError("slow")] * 14]
         report = remote_health("192.0.2.1", Config())
         self.assertFalse(report.healthy)
         self.assertIn("cloud-init: slow", report.errors)

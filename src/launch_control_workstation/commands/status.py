@@ -34,6 +34,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             section("Connectivity", report.connectivity)
             section("Provisioning", report.provisioning)
             section("Developer Tools", report.tools)
+            section("AWS", report.aws_authentication)
             section("System", report.system)
             print("Overall\n")
             print("HEALTHY" if report.healthy else "UNHEALTHY")
