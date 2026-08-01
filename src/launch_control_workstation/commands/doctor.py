@@ -4,9 +4,9 @@
 import argparse
 from collections.abc import Sequence
 
+from launch_control_workstation import logging
 from launch_control_workstation.config import Config
 from launch_control_workstation.doctor import diagnose
-from launch_control_workstation import logging
 
 
 def main(argv: Sequence[str] | None = None) -> int:
