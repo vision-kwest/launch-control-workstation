@@ -119,6 +119,10 @@ jobs:
       - name: Install the published package with pipx
         run: |
           python -m pip install --upgrade pipx
-          pipx install --backend pip "launch-control-workstation==${GITHUB_REF_NAME#v}"
-          "$HOME/.local/bin/workstation" version
-          "$HOME/.local/bin/workstation" doctor || test "$?" -eq 1
+          # Ensure pipx's user binary directory is available in this step.
+          python -m pipx ensurepath || true
+          export PATH="$HOME/.local/bin:$PATH"
+          # Force a fresh install and resolve the CLI through PATH.
+          pipx install --force --backend pip "launch-control-workstation==${GITHUB_REF_NAME#v}"
+          workstation version
+          workstation doctor || test "$?" -eq 1
