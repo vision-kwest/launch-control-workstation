@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import subprocess
-from typing import Sequence
+from collections.abc import Sequence
 
 from .config import Config
-from .process import call, run as run_process
+from .process import call
+from .process import run as run_process
 
 
 def command(host: str, config: Config, extra: Sequence[str] = ()) -> list[str]:

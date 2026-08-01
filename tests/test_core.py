@@ -4,17 +4,17 @@ import contextlib
 import io
 import json
 import os
-from pathlib import Path
 import re
 import tempfile
 import tomllib
 import unittest
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 from launch_control_workstation.aws import Instance, ensure_key_pair, tag_spec
 from launch_control_workstation.cli import main as cli_main
 from launch_control_workstation.config import Config
-from launch_control_workstation.health import HealthReport, Check
+from launch_control_workstation.health import Check, HealthReport
 from launch_control_workstation.ssh import command
 from launch_control_workstation.userdata import render
 
@@ -46,6 +46,15 @@ class CoreTests(unittest.TestCase):
         self.assertIn("id-token: write", workflow)
         self.assertIn("distributed through PyPI using Trusted Publishing", workflow)
         self.assertIn("pipx install launch-control-workstation", workflow)
+        self.assertEqual(
+            workflow.count('workstation doctor || test "$?" -eq 1'),
+            2,
+        )
+        self.assertIn(
+            '"$HOME/.local/bin/workstation" doctor || test "$?" -eq 1',
+            workflow,
+        )
+        self.assertIn("pipx install --backend pip", workflow)
 
     @patch("launch_control_workstation.cli.importlib.import_module")
     def test_cli_dispatches_command_arguments(self, import_module: Mock) -> None:

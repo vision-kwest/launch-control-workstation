@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
 import shutil
 import sys
+from dataclasses import dataclass
 
 from .aws import AwsError, aws, default_network, find_instances
 from .config import Config

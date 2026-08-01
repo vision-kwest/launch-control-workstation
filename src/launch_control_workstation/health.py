@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import socket
 import time
+from dataclasses import dataclass
 
 from .aws import Instance, aws
 from .config import Config

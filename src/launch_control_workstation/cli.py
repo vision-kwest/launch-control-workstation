@@ -7,7 +7,6 @@ import importlib
 import sys
 from collections.abc import Sequence
 
-
 COMMANDS = ("launch", "doctor", "status", "ssh", "destroy", "version")
 
 
