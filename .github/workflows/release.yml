@@ -26,8 +26,17 @@ jobs:
           test "${GITHUB_REF_NAME}" = "v${package_version}"
       - name: Run tests
         run: python -m pytest
-      - name: Lint
-        run: python -m ruff check .
+      - name: Lint (auto-fixable)
+        run: |
+          python -m ruff check . --fix
+          # If ruff changed files, fail so authors commit the changes
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "ruff --fix modified source files — please run 'python -m ruff check . --fix', commit the changes, and push."
+            git --no-pager diff --name-only
+            exit 1
+          fi
+          # Final strict check (non-fixable problems will fail here)
+          python -m ruff check .
       - name: Build wheel and source distribution
         run: python -m build
       - name: Verify distribution metadata
