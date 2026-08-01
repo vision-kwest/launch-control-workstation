@@ -28,15 +28,23 @@ jobs:
         run: python -m pytest
       - name: Lint (auto-fixable)
         run: |
-          python -m ruff check . --fix
+          fix_status=0
+          python -m ruff check . --fix || fix_status=$?
+
           # If ruff changed files, fail so authors commit the changes
-          if [ -n "$(git status --porcelain)" ]; then
+          diff_status=0
+          if ! git diff --quiet; then
             echo "ruff --fix modified source files — please run 'python -m ruff check . --fix', commit the changes, and push."
             git --no-pager diff --name-only
-            exit 1
+            diff_status=1
           fi
+
           # Final strict check (non-fixable problems will fail here)
-          python -m ruff check .
+          strict_status=0
+          python -m ruff check . || strict_status=$?
+          test "$fix_status" -eq 0
+          test "$diff_status" -eq 0
+          test "$strict_status" -eq 0
       - name: Build wheel and source distribution
         run: python -m build
       - name: Verify distribution metadata
@@ -46,7 +54,9 @@ jobs:
       - name: Verify installed CLI
         run: |
           workstation version
-          workstation doctor
+          # A clean GitHub runner has no AWS CLI or credentials. Doctor must
+          # complete normally, but its documented unhealthy exit is expected.
+          workstation doctor || test "$?" -eq 1
       - uses: actions/upload-artifact@v4
         with:
           name: distributions
@@ -122,11 +132,11 @@ jobs:
             sleep 10
           done
           workstation version
-          workstation doctor
+          workstation doctor || test "$?" -eq 1
           python -m pip uninstall --yes launch-control-workstation
       - name: Install the published package with pipx
         run: |
           python -m pip install --upgrade pipx
-          pipx install "launch-control-workstation==${GITHUB_REF_NAME#v}"
-          workstation version
-          workstation doctor
+          pipx install --backend pip "launch-control-workstation==${GITHUB_REF_NAME#v}"
+          "$HOME/.local/bin/workstation" version
+          "$HOME/.local/bin/workstation" doctor || test "$?" -eq 1

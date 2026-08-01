@@ -46,6 +46,15 @@ class CoreTests(unittest.TestCase):
         self.assertIn("id-token: write", workflow)
         self.assertIn("distributed through PyPI using Trusted Publishing", workflow)
         self.assertIn("pipx install launch-control-workstation", workflow)
+        self.assertEqual(
+            workflow.count('workstation doctor || test "$?" -eq 1'),
+            2,
+        )
+        self.assertIn(
+            '"$HOME/.local/bin/workstation" doctor || test "$?" -eq 1',
+            workflow,
+        )
+        self.assertIn("pipx install --backend pip", workflow)
 
     @patch("launch_control_workstation.cli.importlib.import_module")
     def test_cli_dispatches_command_arguments(self, import_module: Mock) -> None:
