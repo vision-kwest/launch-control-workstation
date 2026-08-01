@@ -36,21 +36,27 @@ Run `workstation doctor` first. It performs read-only checks of local tools, AWS
 
 ### End users
 
-The supported and recommended installation uses
-[pipx](https://pipx.pypa.io/), which gives the command its own isolated Python
-environment while making it available on `PATH`:
-
-```bash
-pipx install launch-control-workstation
-workstation version
-workstation doctor
-```
-
-Alternatively, install the package from PyPI into the current Python
-environment:
+The popular AWS CloudShell tool natively supports installing the 
+package from PyPI into the current Python environment:
 
 ```bash
 python3 -m pip install launch-control-workstation
+```
+
+The recommended installation uses [pipx](https://pipx.pypa.io/), 
+which gives the command its own isolated Python environment 
+while making it available on `PATH`:
+
+```bash
+python3 -m pip install pipx
+pipx install launch-control-workstation
+```
+
+Then sanity check becomes.
+
+```bash
+workstation version
+workstation doctor
 ```
 
 GitHub is the source repository; PyPI is the official distribution channel.
