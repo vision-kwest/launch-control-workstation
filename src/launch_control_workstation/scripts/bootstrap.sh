@@ -4,7 +4,26 @@ exec > >(tee -a /var/log/launch-control-bootstrap.log) 2>&1
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y git curl wget build-essential python3 python3-pip unzip zip jq tree tmux htop openssh-server ca-certificates gnupg
+apt-get install -y git curl wget build-essential python3 python3-pip pipx unzip zip jq tree tmux htop openssh-server ca-certificates gnupg
+
+# Keep the application isolated from the system interpreter.  Ubuntu's pipx
+# package is preferred, but ensurepath is still run so upgrades from older
+# images retain a usable pipx installation.
+pipx ensurepath
+export PIPX_HOME=/opt/pipx
+export PIPX_BIN_DIR=/usr/local/bin
+export PATH="${PIPX_BIN_DIR}:${PATH}"
+pipx --version
+
+if pipx list --short | grep -q '^launch-control-workstation '; then
+  pipx upgrade launch-control-workstation
+else
+  pipx install launch-control-workstation
+fi
+
+# A broken or incomplete published package must stop cloud-init immediately.
+workstation version
+workstation doctor
 
 install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg

@@ -3,34 +3,117 @@ name: Release
 on:
   push:
     tags: ["v*"]
-  release:
-    types: [published]
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 jobs:
-  build-and-publish:
+  validate:
     runs-on: ubuntu-latest
-    environment: pypi
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.release.tag_name || github.ref }}
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Build distributions
-        run: python -m pip install --upgrade build && python -m build
+          cache: pip
+      - name: Install validation tools
+        run: python -m pip install --upgrade build pytest ruff twine
+      - name: Require tag and package versions to match
+        run: |
+          package_version=$(python -c 'exec(open("src/launch_control_workstation/version.py").read()); print(__version__)')
+          test "${GITHUB_REF_NAME}" = "v${package_version}"
+      - name: Run tests
+        run: python -m pytest
+      - name: Lint
+        run: python -m ruff check .
+      - name: Build wheel and source distribution
+        run: python -m build
       - name: Verify distribution metadata
-        run: python -m pip install --upgrade twine && python -m twine check dist/*
-      - name: Upload distributions to GitHub Release
-        uses: softprops/action-gh-release@v2
+        run: python -m twine check --strict dist/*
+      - name: Install built wheel
+        run: python -m pip install dist/*.whl
+      - name: Verify installed CLI
+        run: |
+          workstation version
+          workstation doctor
+      - uses: actions/upload-artifact@v4
         with:
-          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
-          files: dist/*
+          name: distributions
+          path: dist/*
+          if-no-files-found: error
+
+  publish-pypi:
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: distributions
+          path: dist
       - name: Publish distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
         with:
-          skip-existing: true
+          name: distributions
+          path: dist
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<EOF
+          ## launch-control-workstation ${GITHUB_REF_NAME#v}
+
+          | Detail | Value |
+          |---|---|
+          | Package version | \`${GITHUB_REF_NAME#v}\` |
+          | Git commit | \`${GITHUB_SHA}\` |
+          | Python version | \`3.12+\` |
+          | Supported platforms | Linux and macOS |
+
+          ### Installation
+
+          \`\`\`bash
+          pipx install launch-control-workstation
+          \`\`\`
+
+          [PyPI](https://pypi.org/project/launch-control-workstation/) · [Repository](https://github.com/${GITHUB_REPOSITORY}) · [Releases](https://github.com/${GITHUB_REPOSITORY}/releases) · [Documentation](https://github.com/${GITHUB_REPOSITORY}#readme)
+          EOF
+      - name: Create GitHub Release and upload distributions
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body_path: release-notes.md
+          generate_release_notes: true
+
+  validate-pypi:
+    needs: [publish-pypi, github-release]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Wait for and install the published package with pip
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          for attempt in {1..12}; do
+            python -m pip install --no-cache-dir "launch-control-workstation==${version}" && break
+            test "$attempt" -lt 12
+            sleep 10
+          done
+          workstation version
+          workstation doctor
+          python -m pip uninstall --yes launch-control-workstation
+      - name: Install the published package with pipx
+        run: |
+          python -m pip install --upgrade pipx
+          pipx install "launch-control-workstation==${GITHUB_REF_NAME#v}"
+          workstation version
+          workstation doctor

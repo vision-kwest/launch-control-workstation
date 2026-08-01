@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## Unreleased
+
+### Changed
+
+- Made PyPI and pipx the official distribution and installation path.
+- Added tag-gated Trusted Publishing, GitHub Release artifacts, and post-publish
+  installation validation to the automated release workflow.
+- Made workstation bootstrap installation idempotently install or upgrade the
+  published package and verify its CLI diagnostics.
+
 ## 1.0.0 - 2026-07-30
 
 ### Added

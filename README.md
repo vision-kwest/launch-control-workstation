@@ -36,13 +36,30 @@ Run `workstation doctor` first. It performs read-only checks of local tools, AWS
 
 ### End users
 
-Install the latest version directly from the GitHub repository:
+The supported and recommended installation uses
+[pipx](https://pipx.pypa.io/), which gives the command its own isolated Python
+environment while making it available on `PATH`:
 
 ```bash
-python3 -m pip install --upgrade \
-  git+https://github.com/vision-kwest/launch-control-workstation.git
+pipx install launch-control-workstation
 workstation version
 workstation doctor
+```
+
+Alternatively, install the package from PyPI into the current Python
+environment:
+
+```bash
+python3 -m pip install launch-control-workstation
+```
+
+GitHub is the source repository; PyPI is the official distribution channel.
+
+Upgrade or remove a pipx installation with:
+
+```bash
+pipx upgrade launch-control-workstation
+pipx uninstall launch-control-workstation
 ```
 
 ### Development
@@ -62,6 +79,7 @@ Install the test and packaging tools when contributing:
 ```bash
 python -m pip install -e '.[dev]'
 python -m pytest
+python -m ruff check .
 python -m build
 python -m twine check dist/*
 ```
@@ -188,18 +206,30 @@ resources. A stopped instance still incurs EBS storage charges.
 
 ## Releases and publishing
 
-Versions follow [Semantic Versioning](https://semver.org/), with the authoritative
-version stored in `src/launch_control_workstation/version.py`. Update that file
-and `CHANGELOG.md`, commit the change, and create a matching `vX.Y.Z` tag or
-GitHub Release. The release workflow builds and validates both a wheel and source
-distribution, attaches them to the GitHub Release, and publishes them to PyPI.
+Versions follow [Semantic Versioning](https://semver.org/). The sole version
+source is `src/launch_control_workstation/version.py`; package metadata and the
+`workstation version` command both read it dynamically. Release tags must match
+that value exactly as `vX.Y.Z`.
 
-PyPI publishing is configured for Trusted Publishing. A project maintainer must
-create a PyPI trusted publisher for this GitHub repository, the `release.yml`
-workflow, and the `pypi` environment. No repository secret is required. If the
-workflow is changed to token authentication, store the token as a GitHub Actions
-secret (for example `PYPI_API_TOKEN`) and never commit it. See
-[CHANGELOG.md](CHANGELOG.md) for release history.
+Maintainers publish with this sequence—there are no manual uploads or manual
+PyPI steps:
+
+1. Update [CHANGELOG.md](CHANGELOG.md).
+2. Update the authoritative version.
+3. Commit those changes.
+4. Create a matching tag, for example `git tag v1.1.0`.
+5. Push the tag with `git push origin v1.1.0`.
+6. GitHub Actions tests, lints, builds, and validates the distributions.
+7. GitHub Trusted Publishing publishes them to PyPI.
+8. The workflow creates the GitHub Release and uploads both artifacts.
+9. A separate job installs the public PyPI release with pip and pipx and checks
+   the installed CLI.
+
+The Trusted Publisher is scoped to this repository, `.github/workflows/release.yml`,
+and the `pypi` environment; no PyPI API token or repository secret is needed.
+See [PyPI](https://pypi.org/project/launch-control-workstation/),
+[GitHub Releases](https://github.com/Vision-Kwest/launch-control-workstation/releases),
+and [CHANGELOG.md](CHANGELOG.md) for published history.
 
 ## License
 
