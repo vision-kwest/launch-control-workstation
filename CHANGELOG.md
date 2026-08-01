@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- Grant the Control Workstation role CodeBuild administration permissions so
+  studio infrastructure can bootstrap its shared automatic-expiration project.
+
 ## 1.0.2 - 2026-08-01
 
 ### Fixed
