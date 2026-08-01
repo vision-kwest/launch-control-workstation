@@ -48,13 +48,12 @@ class CoreTests(unittest.TestCase):
         self.assertIn("pipx install launch-control-workstation", workflow)
         self.assertEqual(
             workflow.count('workstation doctor || test "$?" -eq 1'),
-            2,
+            3,
         )
-        self.assertIn(
-            '"$HOME/.local/bin/workstation" doctor || test "$?" -eq 1',
-            workflow,
-        )
-        self.assertIn("pipx install --backend pip", workflow)
+        self.assertNotIn('"$HOME/.local/bin/workstation"', workflow)
+        self.assertIn("python -m pipx ensurepath || true", workflow)
+        self.assertIn('export PATH="$HOME/.local/bin:$PATH"', workflow)
+        self.assertIn("pipx install --force --backend pip", workflow)
 
     @patch("launch_control_workstation.cli.importlib.import_module")
     def test_cli_dispatches_command_arguments(self, import_module: Mock) -> None:
