@@ -157,7 +157,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         logging.ok(f"cloud-init complete. ({time.monotonic() - cloud_started:.1f}s)")
         health_started = time.monotonic()
         logging.info("Waiting for all workstation health checks...")
-        report = wait_until_healthy(instance, config)
+        wait_until_healthy(instance, config)
         logging.ok(f"Health checks passed. ({time.monotonic() - health_started:.1f}s)")
         logging.ok("All workstation health checks passed.")
         logging.ok(f"Total launch time: {time.monotonic() - total_started:.1f}s.")

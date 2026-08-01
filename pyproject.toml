@@ -5,12 +5,12 @@ build-backend = "hatchling.build"
 [project]
 name = "launch-control-workstation"
 dynamic = ["version"]
-description = "Infrastructure Control Workstation launcher for AWS"
+description = "Provision and manage a persistent AWS infrastructure control workstation"
 readme = "README.md"
 requires-python = ">=3.12"
 license = "MIT"
 authors = [{ name = "Vision Kwest" }]
-keywords = ["aws", "cli", "ec2", "infrastructure", "workstation"]
+keywords = ["aws", "cli", "cloud", "devops", "ec2", "infrastructure", "opentofu", "workstation"]
 classifiers = [
   "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
@@ -19,22 +19,26 @@ classifiers = [
   "Operating System :: POSIX :: Linux",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.12",
+  "Typing :: Typed",
   "Topic :: System :: Systems Administration",
 ]
 dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/Vision-Kwest/launch-control-workstation"
+Documentation = "https://github.com/Vision-Kwest/launch-control-workstation#readme"
 Repository = "https://github.com/Vision-Kwest/launch-control-workstation"
 Issues = "https://github.com/Vision-Kwest/launch-control-workstation/issues"
 Changelog = "https://github.com/Vision-Kwest/launch-control-workstation/blob/main/CHANGELOG.md"
+Releases = "https://github.com/Vision-Kwest/launch-control-workstation/releases"
+PyPI = "https://pypi.org/project/launch-control-workstation/"
 
 [project.scripts]
 workstation = "launch_control_workstation.cli:main"
 
 [project.optional-dependencies]
 test = ["pytest>=8"]
-dev = ["build>=1.2", "pytest>=8", "twine>=5"]
+dev = ["build>=1.2", "pytest>=8", "ruff>=0.12", "twine>=5"]
 
 [tool.hatch.version]
 path = "src/launch_control_workstation/version.py"
