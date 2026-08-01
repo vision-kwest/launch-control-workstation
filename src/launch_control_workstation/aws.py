@@ -7,6 +7,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from . import logging
 from .config import Config
 from .process import run
 
@@ -213,6 +214,10 @@ def ensure_key_pair(config: Config, *, replace: bool = False) -> None:
                 "Rerun with --replace-key-pair to replace only the EC2 registration, "
                 "or use a different LCW_KEY_NAME."
             )
+        logging.warn(
+            f"EC2 key pair '{config.key_name}' does not match {config.public_key}; "
+            "replacing the stale EC2 registration with the local public key."
+        )
         aws(["ec2", "delete-key-pair", "--key-name", config.key_name], config)
         aws(["ec2", "import-key-pair", "--key-name", config.key_name,
              "--public-key-material", f"fileb://{config.public_key}",

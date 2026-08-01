@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 1.0.2 - 2026-08-01
+
+### Fixed
+
+- Automatically replace a mismatched EC2 key-pair registration, with a warning,
+  when no managed workstation exists. This removes the need for
+  `--replace-key-pair` in fresh CloudShell environments without risking access
+  to an existing workstation.
+
 ## 1.0.1 - 2026-08-01
 
 ### Changed
