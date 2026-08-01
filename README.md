@@ -189,11 +189,18 @@ The tagged security group and imported EC2 key pair are retained for the next ru
   one exists.
 * **SSH timeout:** verify the subnet route, network ACL, public IP, and
   `LCW_SSH_CIDR`. Confirm your local firewall permits outbound TCP/22.
-* **Key mismatch:** if no managed workstation exists, run
-  `workstation launch --replace-key-pair` to replace the stale EC2 registration
-  with `LCW_PUBLIC_KEY`. The local private key is not changed. If a managed
-  workstation still exists, destroy it first or choose a new `LCW_KEY_NAME` so
-  the launcher cannot accidentally make an existing workstation inaccessible.
+* **Key mismatch:** if no managed workstation exists, launch warns and
+  automatically replaces the stale EC2 registration with `LCW_PUBLIC_KEY`. The
+  local private key is not changed. If a managed workstation still exists, the
+  mismatch remains fatal; destroy it first or choose a new `LCW_KEY_NAME` so the
+  launcher cannot accidentally make an existing workstation inaccessible.
+  This is expected when returning in a fresh CloudShell: `workstation destroy`
+  retains the EC2 key-pair registration, but a fresh CloudShell without the
+  previous `~/.ssh/id_ed25519` generates a different key. Because the default
+  `LCW_KEY_NAME` is reused in the same account and region, the launcher refuses
+  to replace that registration while a managed instance exists. Preserve and
+  restore the original SSH key, allow automatic replacement after destroying
+  the instance, or set a unique `LCW_KEY_NAME` for each ephemeral environment.
 * **Bootstrap failure:** SSH in and inspect `/var/log/cloud-init-output.log` and
   `/var/log/launch-control-bootstrap.log`.
 

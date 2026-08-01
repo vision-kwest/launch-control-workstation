@@ -80,7 +80,11 @@ def launch(config: Config, *, replace_key_pair: bool = False) -> str:
             "--replace-key-pair cannot be used while a managed workstation exists; "
             "destroy it first or choose a different LCW_KEY_NAME"
         )
-    ensure_key_pair(config, replace=replace_key_pair)
+    # With no managed instance, a stale registration cannot be providing access
+    # to a workstation we manage, so repairing it is both safe and convenient
+    # for ephemeral launch environments such as CloudShell. Keep the explicit
+    # flag for CLI compatibility; its existing-instance guard remains above.
+    ensure_key_pair(config, replace=replace_key_pair or not existing)
     if existing:
         instance = existing[0]
         if instance.state == "stopped":
@@ -135,7 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--replace-key-pair",
         action="store_true",
-        help="replace a mismatched EC2 key-pair registration (requires no managed workstation)",
+        help="deprecated compatibility option; stale registrations are replaced automatically when no managed workstation exists",
     )
     args = parser.parse_args(argv)
     total_started = time.monotonic()

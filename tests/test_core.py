@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 
 from launch_control_workstation.aws import Instance, ensure_key_pair, tag_spec
 from launch_control_workstation.cli import main as cli_main
+from launch_control_workstation.commands.launch import launch
 from launch_control_workstation.config import Config
 from launch_control_workstation.health import Check, HealthReport
 from launch_control_workstation.ssh import command
@@ -20,6 +21,19 @@ from launch_control_workstation.userdata import render
 
 
 class CoreTests(unittest.TestCase):
+    @patch("launch_control_workstation.commands.launch.ensure_key_pair", side_effect=RuntimeError("stop after key check"))
+    @patch("launch_control_workstation.commands.launch.find_instances", return_value=[])
+    @patch("launch_control_workstation.commands.launch.aws", return_value={"Arn": "test-identity"})
+    def test_launch_automatically_repairs_key_when_no_instance_exists(
+        self, aws_call: Mock, find: Mock, ensure: Mock,
+    ) -> None:
+        """A new launch permits stale key registration repair without a flag."""
+        with self.assertRaisesRegex(RuntimeError, "stop after key check"):
+            launch(Config())
+
+        ensure.assert_called_once()
+        self.assertTrue(ensure.call_args.kwargs["replace"])
+
     def test_release_contract(self) -> None:
         """Protect the version source and tag-gated PyPI publishing contract."""
         root = Path(__file__).resolve().parents[1]
@@ -115,8 +129,11 @@ class CoreTests(unittest.TestCase):
 
     @patch("launch_control_workstation.aws.run")
     @patch("launch_control_workstation.aws.aws")
-    def test_replace_key_pair_reimports_mismatched_registration(self, aws_call: Mock, run_call: Mock) -> None:
-        """An explicit repair replaces only the stale EC2 registration."""
+    @patch("launch_control_workstation.aws.logging.warn")
+    def test_replace_key_pair_reimports_mismatched_registration(
+        self, warn: Mock, aws_call: Mock, run_call: Mock,
+    ) -> None:
+        """A permitted repair warns and replaces only the stale registration."""
         aws_call.side_effect = [
             {"KeyPairs": [{"KeyFingerprint": "remote-fingerprint"}]},
             "",
@@ -137,6 +154,8 @@ class CoreTests(unittest.TestCase):
         self.assertEqual(aws_call.call_args_list[2].args[0][:4], [
             "ec2", "import-key-pair", "--key-name", "workstation-test",
         ])
+        warn.assert_called_once()
+        self.assertIn("replacing the stale EC2 registration", warn.call_args.args[0])
 
     def test_cloud_init_embeds_bootstrap(self) -> None:
         """Verify rendering inserts an indented script and removes its marker.
