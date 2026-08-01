@@ -16,8 +16,10 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-      - name: Install validation tools
-        run: python -m pip install --upgrade build pytest ruff twine
+      - name: Install validation tools and the package
+        run: |
+          python -m pip install --upgrade build ruff twine
+          python -m pip install --editable ".[test]"
       - name: Require tag and package versions to match
         run: |
           package_version=$(python -c 'exec(open("src/launch_control_workstation/version.py").read()); print(__version__)')
