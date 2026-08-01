@@ -24,13 +24,43 @@ install Docker, graphics drivers, desktop software, or DCC tools.
 ## Requirements
 
 * Python 3.12+
-* AWS CLI v2 configured with credentials and permission to use EC2, SSM, STS,
+* AWS CLI v2 authenticated by the current CloudShell session (do not run
+  `aws configure`) with permission to use EC2, IAM, S3, SSM, CloudWatch, STS,
   and read the EC2 Service Quotas API
 * Git
 * `ssh` and `ssh-keygen` (a default ED25519 key is created automatically when neither key file exists)
 * A default VPC with at least one default subnet and an internet route
 
 Run `workstation doctor` first. It performs read-only checks of local tools, AWS authentication, region networking, EC2 quota, SSH-key state, and existing managed workstations. It never modifies AWS resources.
+
+## AWS Authentication
+
+CloudShell authenticates the launcher with its existing temporary session. The
+launcher creates a dedicated EC2 IAM role and instance profile, attaches that
+profile when the Control Workstation is created, and requires IMDSv2. The
+workstation's AWS CLI and OpenTofu automatically obtain rotating, temporary
+credentials from EC2 Instance Metadata—no extra provider configuration is
+needed.
+
+No AWS credentials are copied to the workstation, no access keys are generated,
+and no secrets or credential files are stored. This is safer than long-lived
+user keys because credentials are short-lived, rotated by AWS, scoped to the
+workload role, and unavailable through IMDS requests that omit a session token.
+
+The role uses these AWS-managed policies initially:
+
+| Managed policy | Purpose |
+|---|---|
+| `AmazonEC2FullAccess` | Provision and manage the studio EC2 fleet. |
+| `IAMFullAccess` | Create and pass the workload roles required by studio provisioning; this is deliberately narrower than `AdministratorAccess`. |
+| `AmazonS3FullAccess` | Access OpenTofu state backends and infrastructure artifacts. |
+| `AmazonSSMFullAccess` | Resolve parameters and manage instances through Systems Manager. |
+| `CloudWatchFullAccessV2` | Publish and manage studio metrics, logs, and alarms. |
+
+These policies are centralized in `iam.py`, where they can be replaced with
+studio-specific customer-managed policies as the infrastructure permission set
+stabilizes. `workstation doctor` uses IAM policy simulation to warn about missing
+launcher permissions without creating or changing resources.
 
 ## Installation
 
@@ -180,17 +210,22 @@ workstation destroy
 
 `status.py` reports lifecycle and addressing details, verifies SSH and cloud-init,
 and displays the OpenTofu, Git, GitHub CLI, and Python versions plus the bootstrap
-completion time and an overall health summary. On the first SSH login, run
+completion time, instance-profile attachment, IMDS availability, temporary
+credentials, STS identity, and an overall health summary. On the first SSH login, run
 `gh auth login`; GitHub authentication is never performed automatically.
 
 `workstation destroy` finds every managed workstation by tags, asks for confirmation,
-terminates it, and waits. Automation can explicitly use `workstation destroy --yes`.
-The tagged security group and imported EC2 key pair are retained for the next run.
+terminates it, waits, and removes the now-unused instance profile and IAM role.
+Automation can explicitly use `workstation destroy --yes`. The tagged security
+group and imported EC2 key pair are retained for the next run.
 
 ## Troubleshooting
 
-* **Credentials fail:** rerun `aws configure`, AWS SSO login, or refresh the
-  CloudShell session, then verify `aws sts get-caller-identity`.
+* **Launcher credentials fail:** refresh the CloudShell session, then verify
+  `aws sts get-caller-identity`; never copy those credentials to the workstation.
+* **Workstation credentials fail:** run `workstation status` and inspect the AWS
+  section. Confirm the instance profile is attached and IMDSv2 is reachable;
+  do not run `aws configure` or set static credential environment variables.
 * **No default VPC/subnet:** recreate a default VPC or launch in a region where
   one exists.
 * **SSH timeout:** verify the subnet route, network ACL, public IP, and

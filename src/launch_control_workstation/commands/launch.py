@@ -27,6 +27,9 @@ from launch_control_workstation.health import (
     wait_for_cloud_init,
     wait_until_healthy,
 )
+from launch_control_workstation.iam import PROFILE_NAME
+from launch_control_workstation.iam import attach as attach_profile
+from launch_control_workstation.iam import ensure as ensure_iam
 from launch_control_workstation.ssh import connect
 from launch_control_workstation.userdata import render
 from launch_control_workstation.wait import ssh as wait_for_ssh
@@ -48,7 +51,7 @@ def verify_tools(config: Config) -> None:
     checks = diagnose(config)
     # A completely absent pair passes diagnostics because launch creates it;
     # incomplete, invalid, or insecure existing key material remains fatal.
-    failures = [item for item in checks if not item.passed]
+    failures = [item for item in checks if not item.passed and not item.warning]
     if failures:
         raise RuntimeError("Preflight failed:\n  - " + "\n  - ".join(f"{x.name}: {x.detail}" for x in failures))
     logging.ok("Preflight diagnostics passed.")
@@ -72,6 +75,9 @@ def launch(config: Config, *, replace_key_pair: bool = False) -> str:
     logging.info("Checking AWS credentials...")
     identity = aws(["sts", "get-caller-identity"], config)
     logging.ok(f"AWS authentication successful ({identity['Arn']}).")
+    logging.info("Ensuring EC2 instance role and profile...")
+    ensure_iam(config)
+    logging.ok(f"IAM instance profile {PROFILE_NAME} is ready.")
 
     # Do this before reuse too: a launcher must never proceed with an unverified key.
     existing = find_instances(config)
@@ -92,6 +98,7 @@ def launch(config: Config, *, replace_key_pair: bool = False) -> str:
             aws(["ec2", "start-instances", "--instance-ids", instance.instance_id], config)
         else:
             logging.ok(f"Reusing existing {instance.state} instance {instance.instance_id}.")
+        attach_profile(instance.instance_id, config)
         return instance.instance_id
 
     ami_started = time.monotonic()
@@ -113,6 +120,7 @@ def launch(config: Config, *, replace_key_pair: bool = False) -> str:
             "--associate-public-ip-address", "--ebs-optimized", "--monitoring", "Enabled=true",
             "--instance-initiated-shutdown-behavior", "terminate",
             "--metadata-options", "HttpTokens=required,HttpEndpoint=enabled",
+            "--iam-instance-profile", f"Name={PROFILE_NAME}",
             "--block-device-mappings",
             f"DeviceName=/dev/sda1,Ebs={{VolumeSize={config.disk_size},VolumeType=gp3,DeleteOnTermination=true,Encrypted=true}}",
             "--tag-specifications", tag_spec("instance", config.tags), tag_spec("volume", config.tags),

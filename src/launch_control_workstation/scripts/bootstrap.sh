@@ -6,6 +6,19 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y git curl wget build-essential python3 python3-pip pipx unzip zip jq tree tmux htop openssh-server ca-certificates gnupg
 
+# Install AWS CLI v2 system-wide. It discovers temporary instance-role
+# credentials through IMDSv2; no credential file or access key is created.
+machine="$(uname -m)"
+case "$machine" in
+  x86_64) aws_arch=x86_64 ;;
+  aarch64) aws_arch=aarch64 ;;
+  *) echo "Unsupported AWS CLI architecture: $machine" >&2; exit 1 ;;
+esac
+curl -fsSL "https://awscli.amazonaws.com/awscli-exe-linux-${aws_arch}.zip" -o /tmp/awscliv2.zip
+unzip -q /tmp/awscliv2.zip -d /tmp
+/tmp/aws/install --update
+aws --version
+
 # Keep the application isolated from the system interpreter.  Ubuntu's pipx
 # package is preferred, but ensurepath is still run so upgrades from older
 # images retain a usable pipx installation.
