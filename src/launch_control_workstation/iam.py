@@ -24,6 +24,9 @@ MANAGED_POLICIES = {
     "arn:aws:iam::aws:policy/AmazonSSMFullAccess": "read parameters and manage instances with SSM",
     # Infrastructure workflows publish and inspect operational metrics and logs.
     "arn:aws:iam::aws:policy/CloudWatchFullAccessV2": "manage CloudWatch telemetry",
+    # Automatic-expiration bootstrapping creates and operates the shared
+    # CodeBuild project that destroys expired studio resources.
+    "arn:aws:iam::aws:policy/AWSCodeBuildAdminAccess": "bootstrap automatic expiration",
 }
 
 

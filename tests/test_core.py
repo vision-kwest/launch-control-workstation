@@ -39,7 +39,14 @@ class CoreTests(unittest.TestCase):
     def test_instance_role_avoids_administrator_access(self) -> None:
         """The documented workload policies never grant blanket administrator access."""
         self.assertNotIn("arn:aws:iam::aws:policy/AdministratorAccess", MANAGED_POLICIES)
-        self.assertEqual(len(MANAGED_POLICIES), 5)
+        self.assertEqual(len(MANAGED_POLICIES), 6)
+
+    def test_instance_role_can_bootstrap_expiration_codebuild_project(self) -> None:
+        """The workstation can create the shared automatic-expiration project."""
+        self.assertIn(
+            "arn:aws:iam::aws:policy/AWSCodeBuildAdminAccess",
+            MANAGED_POLICIES,
+        )
 
     def test_release_contract(self) -> None:
         """Protect the version source and tag-gated PyPI publishing contract."""

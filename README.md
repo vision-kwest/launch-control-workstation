@@ -26,7 +26,7 @@ install Docker, graphics drivers, desktop software, or DCC tools.
 * Python 3.12+
 * AWS CLI v2 authenticated by the current CloudShell session (do not run
   `aws configure`) with permission to use EC2, IAM, S3, SSM, CloudWatch, STS,
-  and read the EC2 Service Quotas API
+  CodeBuild, and read the EC2 Service Quotas API
 * Git
 * `ssh` and `ssh-keygen` (a default ED25519 key is created automatically when neither key file exists)
 * A default VPC with at least one default subnet and an internet route
@@ -56,6 +56,7 @@ The role uses these AWS-managed policies initially:
 | `AmazonS3FullAccess` | Access OpenTofu state backends and infrastructure artifacts. |
 | `AmazonSSMFullAccess` | Resolve parameters and manage instances through Systems Manager. |
 | `CloudWatchFullAccessV2` | Publish and manage studio metrics, logs, and alarms. |
+| `AWSCodeBuildAdminAccess` | Create and operate the shared automatic-expiration project used by studio infrastructure. |
 
 These policies are centralized in `iam.py`, where they can be replaced with
 studio-specific customer-managed policies as the infrastructure permission set
@@ -244,6 +245,11 @@ group and imported EC2 key pair are retained for the next run.
   the instance, or set a unique `LCW_KEY_NAME` for each ephemeral environment.
 * **Bootstrap failure:** SSH in and inspect `/var/log/cloud-init-output.log` and
   `/var/log/launch-control-bootstrap.log`.
+* **Expiration bootstrap reports `codebuild:CreateProject` denied:** rerun
+  `workstation launch` from an identity allowed to update the workstation role.
+  Launch idempotently attaches `AWSCodeBuildAdminAccess`; existing workstations
+  receive the added permission through their shared instance role without being
+  recreated. Then retry the studio infrastructure launch command.
 
 ## Cost expectations
 
