@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## Unreleased
 
+## 1.0.1 - 2026-08-01
+
 ### Changed
 
 - Made PyPI and pipx the official distribution and installation path.
@@ -11,6 +13,10 @@ All notable changes to this project are documented here.
   installation validation to the automated release workflow.
 - Made workstation bootstrap installation idempotently install or upgrade the
   published package and verify its CLI diagnostics.
+- Removed the duplicated configuration version literal so package metadata, the
+  CLI, and AWS resource tags all use the authoritative package version module.
+- Added release-contract tests for version sourcing, tag-triggered releases,
+  PyPI Trusted Publishing, and generated installation notes.
 
 ## 1.0.0 - 2026-07-30
 

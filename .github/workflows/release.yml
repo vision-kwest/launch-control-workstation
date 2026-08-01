@@ -80,6 +80,8 @@ jobs:
 
           ### Installation
 
+          This release is distributed through PyPI using Trusted Publishing.
+
           \`\`\`bash
           pipx install launch-control-workstation
           \`\`\`

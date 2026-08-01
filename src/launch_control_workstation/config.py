@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 import os
 from pathlib import Path
 
+from launch_control_workstation.version import __version__
+
 
 def _integer(name: str, default: int) -> int:
     """Read an integer setting from the process environment.
@@ -65,7 +67,7 @@ class Config:
     public_key: Path = field(default_factory=lambda: Path(os.getenv("LCW_PUBLIC_KEY", "~/.ssh/id_ed25519.pub")).expanduser())
     key_name: str = field(default_factory=lambda: os.getenv("LCW_KEY_NAME", "launch-control-workstation"))
     security_group_name: str = field(default_factory=lambda: os.getenv("LCW_SECURITY_GROUP", "launch-control-workstation"))
-    version: str = "1.0.0"
+    version: str = __version__
 
     @property
     def tags(self) -> dict[str, str]:
