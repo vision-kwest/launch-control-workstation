@@ -238,6 +238,9 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn("__BOOTSTRAP_SCRIPT__", user_data)
         self.assertNotIn("__LCW_REGION__", user_data)
         self.assertNotIn("__LCW_KEY_NAME__", user_data)
+        self.assertNotIn("__LCW_VERSION__", user_data)
+        self.assertIn("git+https://github.com/Vision-Kwest/launch-control-workstation.git@main", user_data)
+        self.assertIn(f'test "$(workstation version)" = {Config().version}', user_data)
         self.assertIn("workstation key", user_data)
         self.assertIn("condition: test -f /var/run/reboot-required", user_data)
 
@@ -257,6 +260,39 @@ class CoreTests(unittest.TestCase):
         report = HealthReport(infrastructure=(passed,), system=(failed,))
         self.assertFalse(report.healthy)
         self.assertEqual(report.errors, ("two: broken",))
+
+    @patch("launch_control_workstation.health.time.sleep")
+    @patch("launch_control_workstation.health.time.monotonic", side_effect=[0, 0, 1, 2])
+    @patch("launch_control_workstation.health.check")
+    def test_health_wait_reports_pending_checks(self, health_check: Mock, monotonic: Mock,
+                                                sleep: Mock) -> None:
+        """Launch callers receive diagnostics before a later poll succeeds."""
+        from launch_control_workstation.health import wait_until_healthy
+
+        pending = HealthReport(system=(Check("Reboot pending", False, "pending"),))
+        healthy = HealthReport(system=(Check("Reboot pending", True, "not pending"),))
+        health_check.side_effect = [pending, healthy]
+        observed: list[HealthReport] = []
+
+        result = wait_until_healthy(Instance("i-test", "running"), Config(cloud_init_timeout=2),
+                                    interval=0, on_pending=observed.append)
+
+        self.assertIs(result, healthy)
+        self.assertEqual(observed, [pending])
+
+    @patch("launch_control_workstation.health.ThreadPoolExecutor")
+    def test_remote_health_probes_use_bounded_parallel_workers(self, executor: Mock) -> None:
+        """A slow probe cannot serialize every remote-command timeout."""
+        from launch_control_workstation.health import _remote_group
+
+        pool = executor.return_value.__enter__.return_value
+        pool.map.return_value = (Check("one", True, "ok"), Check("two", True, "ok"))
+        probes = (("one", "first command"), ("two", "second command"))
+
+        result = _remote_group("192.0.2.1", Config(), probes)
+
+        executor.assert_called_once_with(max_workers=2)
+        self.assertEqual(tuple(item.name for item in result), ("one", "two"))
 
     def test_instance_defaults_are_diagnostic_safe(self) -> None:
         """An instance model can represent incomplete AWS addressing."""

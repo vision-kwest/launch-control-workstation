@@ -28,14 +28,13 @@ export PIPX_BIN_DIR=/usr/local/bin
 export PATH="${PIPX_BIN_DIR}:${PATH}"
 pipx --version
 
-if pipx list --short | grep -q '^launch-control-workstation '; then
-  pipx upgrade launch-control-workstation
-else
-  pipx install launch-control-workstation
-fi
+# Install from the same main branch used by the launcher.  PyPI can briefly lag
+# the repository after a workstation feature lands; bootstrapping an older CLI
+# would otherwise fail when the script invokes that new feature below.
+pipx install --force 'git+https://github.com/Vision-Kwest/launch-control-workstation.git@main'
 
-# A broken or incomplete published package must stop cloud-init immediately.
-workstation version
+# A broken or stale package must stop cloud-init immediately.
+test "$(workstation version)" = __LCW_VERSION__
 
 # The durable control node, not the ephemeral launcher, owns the studio SSH
 # identity. Run as the login user so the files live on its persistent root disk.
