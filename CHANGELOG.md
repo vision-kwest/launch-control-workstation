@@ -8,6 +8,8 @@ All notable changes to this project are documented here.
 
 - Grant the Control Workstation role CodeBuild administration permissions so
   studio infrastructure can bootstrap its shared automatic-expiration project.
+- Grant least-privilege EventBridge Scheduler and constrained role-passing
+  permissions for studio automatic-expiration schedules.
 
 ## 1.0.2 - 2026-08-01
 
