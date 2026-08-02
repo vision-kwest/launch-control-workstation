@@ -164,7 +164,8 @@ def ensure_security_group(vpc_id: str, config: Config) -> str:
     return group_id
 
 
-def ensure_key_pair(config: Config, *, replace: bool = False) -> None:
+def ensure_key_pair(config: Config, *, replace: bool = False,
+                    key_name: str | None = None) -> None:
     """Ensure matching local Ed25519 files and an EC2 key-pair registration.
 
     If neither local key file exists, ``ssh-keygen`` creates the pair without a
@@ -180,6 +181,7 @@ def ensure_key_pair(config: Config, *, replace: bool = False) -> None:
             incomplete, or the EC2 fingerprint differs from the local key.
     """
     private_key = config.public_key.with_suffix("")
+    registration_name = key_name or config.key_name
     if not private_key.exists() and not config.public_key.exists():
         private_key.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         result = run(["ssh-keygen", "-t", "ed25519", "-f", str(private_key),
@@ -190,11 +192,11 @@ def ensure_key_pair(config: Config, *, replace: bool = False) -> None:
     elif not private_key.is_file() or not config.public_key.is_file():
         raise AwsError(f"Incomplete SSH key pair: both {private_key} and {config.public_key} must exist; no files were overwritten")
 
-    existing = aws(["ec2", "describe-key-pairs", "--filters", f"Name=key-name,Values={config.key_name}"], config)["KeyPairs"]
+    existing = aws(["ec2", "describe-key-pairs", "--filters", f"Name=key-name,Values={registration_name}"], config)["KeyPairs"]
     if existing:
         remote_fingerprint = existing[0].get("KeyFingerprint", "")
     else:
-        imported = aws(["ec2", "import-key-pair", "--key-name", config.key_name,
+        imported = aws(["ec2", "import-key-pair", "--key-name", registration_name,
          "--public-key-material", f"fileb://{config.public_key}",
          "--tag-specifications", tag_spec("key-pair", config.tags)], config)
         remote_fingerprint = imported.get("KeyFingerprint", "")
@@ -209,16 +211,16 @@ def ensure_key_pair(config: Config, *, replace: bool = False) -> None:
     if comparable_remote and comparable_local != comparable_remote:
         if not replace:
             raise AwsError(
-                f"EC2 key pair '{config.key_name}' does not match {config.public_key} "
+                f"EC2 key pair '{registration_name}' does not match {config.public_key} "
                 f"(EC2 {remote_fingerprint}, local {local_fingerprint}). "
                 "Rerun with --replace-key-pair to replace only the EC2 registration, "
                 "or use a different LCW_KEY_NAME."
             )
         logging.warn(
-            f"EC2 key pair '{config.key_name}' does not match {config.public_key}; "
+            f"EC2 key pair '{registration_name}' does not match {config.public_key}; "
             "replacing the stale EC2 registration with the local public key."
         )
-        aws(["ec2", "delete-key-pair", "--key-name", config.key_name], config)
-        aws(["ec2", "import-key-pair", "--key-name", config.key_name,
+        aws(["ec2", "delete-key-pair", "--key-name", registration_name], config)
+        aws(["ec2", "import-key-pair", "--key-name", registration_name,
              "--public-key-material", f"fileb://{config.public_key}",
              "--tag-specifications", tag_spec("key-pair", config.tags)], config)

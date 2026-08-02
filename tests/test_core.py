@@ -13,6 +13,7 @@ from unittest.mock import Mock, patch
 
 from launch_control_workstation.aws import Instance, ensure_key_pair, tag_spec
 from launch_control_workstation.cli import main as cli_main
+from launch_control_workstation.commands.key import main as key_main
 from launch_control_workstation.commands.launch import launch
 from launch_control_workstation.config import Config
 from launch_control_workstation.health import Check, HealthReport
@@ -35,6 +36,33 @@ class CoreTests(unittest.TestCase):
 
         ensure.assert_called_once()
         self.assertTrue(ensure.call_args.kwargs["replace"])
+        self.assertEqual(ensure.call_args.kwargs["key_name"],
+                         "launch-control-workstation-bootstrap")
+
+    @patch("launch_control_workstation.commands.key.Config")
+    @patch("launch_control_workstation.commands.key.run")
+    @patch("launch_control_workstation.commands.key.aws")
+    @patch("launch_control_workstation.commands.key.ensure_key_pair")
+    def test_key_command_displays_owned_identity(
+        self, ensure: Mock, aws_call: Mock, run_call: Mock, config_class: Mock,
+    ) -> None:
+        """The helper registers and reports all requested identity metadata."""
+        config_class.return_value = Config(public_key=Path("/home/ubuntu/.ssh/id_ed25519.pub"))
+        run_call.return_value = Mock(
+            returncode=0, stdout="256 SHA256:studio-key comment (ED25519)\n", stderr="",
+        )
+        aws_call.return_value = {"KeyPairs": [{"KeyFingerprint": "studio-key"}]}
+        output = io.StringIO()
+
+        with contextlib.redirect_stdout(output):
+            result = key_main([])
+
+        self.assertEqual(result, 0)
+        ensure.assert_called_once()
+        self.assertIn("Fingerprint: SHA256:studio-key", output.getvalue())
+        self.assertIn("EC2 key name: launch-control-workstation", output.getvalue())
+        self.assertIn("Public key: /home/ubuntu/.ssh/id_ed25519.pub", output.getvalue())
+        self.assertIn("Private key: /home/ubuntu/.ssh/id_ed25519", output.getvalue())
 
     def test_instance_role_avoids_administrator_access(self) -> None:
         """The documented workload policies never grant blanket administrator access."""
@@ -208,6 +236,9 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(user_data.startswith("#cloud-config"))
         self.assertIn("      #!/usr/bin/env bash", user_data)
         self.assertNotIn("__BOOTSTRAP_SCRIPT__", user_data)
+        self.assertNotIn("__LCW_REGION__", user_data)
+        self.assertNotIn("__LCW_KEY_NAME__", user_data)
+        self.assertIn("workstation key", user_data)
         self.assertIn("condition: test -f /var/run/reboot-required", user_data)
 
     def test_ssh_command_uses_matching_private_key(self) -> None:
@@ -241,7 +272,7 @@ class CoreTests(unittest.TestCase):
         connection.return_value.__enter__ = Mock()
         connection.return_value.__exit__ = Mock(return_value=False)
         ssh_run.side_effect = [Mock(returncode=0, stdout="AUTHENTICATED", stderr=""),
-                               *[TimeoutError("slow")] * 14]
+                               *[TimeoutError("slow")] * 18]
         report = remote_health("192.0.2.1", Config())
         self.assertFalse(report.healthy)
         self.assertIn("cloud-init: slow", report.errors)

@@ -90,7 +90,8 @@ def launch(config: Config, *, replace_key_pair: bool = False) -> str:
     # to a workstation we manage, so repairing it is both safe and convenient
     # for ephemeral launch environments such as CloudShell. Keep the explicit
     # flag for CLI compatibility; its existing-instance guard remains above.
-    ensure_key_pair(config, replace=replace_key_pair or not existing)
+    ensure_key_pair(config, replace=replace_key_pair or not existing,
+                    key_name=config.bootstrap_key_name)
     if existing:
         instance = existing[0]
         if instance.state == "stopped":
@@ -112,11 +113,11 @@ def launch(config: Config, *, replace_key_pair: bool = False) -> str:
     logging.info("Creating EC2 instance...")
     create_started = time.monotonic()
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", suffix=".yaml") as user_data:
-        user_data.write(render())
+        user_data.write(render(config))
         user_data.flush()
         data = aws([
             "ec2", "run-instances", "--image-id", ami, "--instance-type", config.instance_type,
-            "--key-name", config.key_name, "--subnet-id", subnet_id, "--security-group-ids", group_id,
+            "--key-name", config.bootstrap_key_name, "--subnet-id", subnet_id, "--security-group-ids", group_id,
             "--associate-public-ip-address", "--ebs-optimized", "--monitoring", "Enabled=true",
             "--instance-initiated-shutdown-behavior", "terminate",
             "--metadata-options", "HttpTokens=required,HttpEndpoint=enabled",
@@ -169,7 +170,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         injected_key = injected_key_health(instance, config)
         if not injected_key.passed:
             raise RuntimeError(f"Incorrect SSH key injected into {instance.instance_id}: "
-                               f"expected {config.key_name}, found {injected_key.detail}")
+                               f"expected {config.bootstrap_key_name}, found {injected_key.detail}")
         ssh_started = time.monotonic()
         logging.info("Waiting for SSH availability...")
         wait_for_ssh(instance.public_ip, config.ssh_timeout)

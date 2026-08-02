@@ -12,7 +12,7 @@ from launch_control_workstation.doctor import diagnose
 def main(argv: Sequence[str] | None = None) -> int:
     argparse.ArgumentParser(description=__doc__).parse_args(argv)
     try:
-        checks = diagnose(Config())
+        checks = diagnose(Config(), workstation_identity=True)
     except (RuntimeError, TimeoutError, ValueError) as exc:
         logging.error(str(exc))
         return 1

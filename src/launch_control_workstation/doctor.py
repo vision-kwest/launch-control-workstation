@@ -56,7 +56,37 @@ def _iam_permission_diagnostics(identity: dict[str, object], config: Config) -> 
                 Diagnostic("Attach instance profiles", False, detail, True))
 
 
-def diagnose(config: Config) -> tuple[Diagnostic, ...]:
+def _identity_diagnostics(config: Config) -> tuple[Diagnostic, ...]:
+    """Validate the workstation-owned key files and EC2 registration."""
+    private = config.public_key.with_suffix("")
+    private_ok = private.is_file()
+    public_ok = config.public_key.is_file()
+    results = [
+        Diagnostic("Private key exists", private_ok, str(private)),
+        Diagnostic("Public key exists", public_ok, str(config.public_key)),
+    ]
+    local = ""
+    if public_ok and shutil.which("ssh-keygen"):
+        fingerprint = run(["ssh-keygen", "-lf", str(config.public_key)], timeout=10)
+        if fingerprint.returncode == 0:
+            local = fingerprint.stdout.split()[1]
+    try:
+        pairs = aws(["ec2", "describe-key-pairs", "--key-names", config.key_name], config)["KeyPairs"]
+    except AwsError as exc:
+        results.extend((Diagnostic("EC2 key registered", False, str(exc).splitlines()[-1]),
+                        Diagnostic("SSH fingerprints match", False, "registration unavailable")))
+        return tuple(results)
+    registered = bool(pairs)
+    remote = pairs[0].get("KeyFingerprint", "") if registered else ""
+    matches = bool(local and remote and
+                   local.removeprefix("SHA256:") == remote.removeprefix("SHA256:"))
+    results.append(Diagnostic("EC2 key registered", registered, config.key_name))
+    results.append(Diagnostic("SSH fingerprints match", matches,
+                              f"local={local or 'unavailable'}, EC2={remote or 'unavailable'}"))
+    return tuple(results)
+
+
+def diagnose(config: Config, *, workstation_identity: bool = False) -> tuple[Diagnostic, ...]:
     """Run local and AWS checks without creating, changing, or deleting resources."""
     results = [Diagnostic("Python", sys.version_info >= (3, 10), sys.version.split()[0])]
     for name, executable in (("Git", "git"), ("AWS CLI", "aws"), ("SSH", "ssh"), ("SSH keygen", "ssh-keygen")):
@@ -128,4 +158,6 @@ def diagnose(config: Config) -> tuple[Diagnostic, ...]:
         results.append(Diagnostic("Existing Control Workstation", len(existing) <= 1, detail))
     except AwsError as exc:
         results.append(Diagnostic("Existing Control Workstation", False, str(exc)))
+    if workstation_identity:
+        results.extend(_identity_diagnostics(config))
     return tuple(results)

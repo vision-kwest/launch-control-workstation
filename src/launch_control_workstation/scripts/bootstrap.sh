@@ -36,7 +36,14 @@ fi
 
 # A broken or incomplete published package must stop cloud-init immediately.
 workstation version
-workstation doctor
+
+# The durable control node, not the ephemeral launcher, owns the studio SSH
+# identity. Run as the login user so the files live on its persistent root disk.
+install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.ssh
+bootstrap_region=__LCW_REGION__
+studio_key_name=__LCW_KEY_NAME__
+runuser -u ubuntu -- env HOME=/home/ubuntu LCW_REGION="$bootstrap_region" \
+  LCW_KEY_NAME="$studio_key_name" workstation key
 
 install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
@@ -56,4 +63,6 @@ tofu version
 gh --version
 install -d -m 0755 /var/lib/launch-control-workstation
 date --iso-8601=seconds > /var/lib/launch-control-workstation/bootstrap-completed
+runuser -u ubuntu -- env HOME=/home/ubuntu LCW_REGION="$bootstrap_region" \
+  LCW_KEY_NAME="$studio_key_name" workstation doctor
 echo "Bootstrap complete. After first login, run: gh auth login"

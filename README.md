@@ -21,6 +21,28 @@ toolset: Git, common shell utilities, build tools, Python, GitHub CLI, SSH, and
 the latest stable OpenTofu package from its official apt repository. It does not
 install Docker, graphics drivers, desktop software, or DCC tools.
 
+### SSH root of trust
+
+The Control Workstation owns the studio SSH identity. On its first boot it
+creates `~/.ssh/id_ed25519` and `~/.ssh/id_ed25519.pub` as the `ubuntu` user,
+without a passphrase, unless both files already exist. The files live on the
+workstation's persistent root volume, survive reboots, and disappear when the
+Control Workstation is destroyed. Existing key material is never overwritten.
+
+The workstation registers its public key in EC2 as
+`launch-control-workstation`. A registration with the same fingerprint is
+reused. A different fingerprint is a hard failure unless an operator explicitly
+runs `workstation key --replace` on the Control Workstation; replacement changes
+only the EC2 registration and never the local private key.
+
+CloudShell's key is used only as the bootstrap credential for logging in to the
+Control Workstation and is registered separately as
+`launch-control-workstation-bootstrap`. It is not reused for GPU workstations
+and leaves the studio trust chain after provisioning. Future
+`studio-infrastructure` integration should discover and use the
+`launch-control-workstation` EC2 key pair for GPU instances. That integration is
+deliberately outside this repository and milestone.
+
 ## Requirements
 
 * Python 3.12+
@@ -204,7 +226,8 @@ All options are environment variables, so no tracked source edits are needed.
 | `LCW_AUTO_LOGIN` | `false` | open SSH automatically after a healthy launch |
 | `LCW_SSH_CIDR` | `0.0.0.0/0` | permitted source CIDR |
 | `LCW_PUBLIC_KEY` | `~/.ssh/id_ed25519.pub` | public key to import |
-| `LCW_KEY_NAME` | `launch-control-workstation` | EC2 key-pair name |
+| `LCW_KEY_NAME` | `launch-control-workstation` | workstation-owned EC2 key-pair name for future GPU instances |
+| `LCW_BOOTSTRAP_KEY_NAME` | `launch-control-workstation-bootstrap` | launcher key-pair name used only to access the Control Workstation |
 | `LCW_SECURITY_GROUP` | `launch-control-workstation` | security-group name |
 
 Example: `LCW_OWNER=vfx-platform LCW_SSH_CIDR=203.0.113.10/32 workstation launch`.
@@ -213,11 +236,15 @@ Example: `LCW_OWNER=vfx-platform LCW_SSH_CIDR=203.0.113.10/32 workstation launch
 
 ```bash
 workstation status
+workstation key
 workstation ssh
 workstation destroy
 ```
 
-`status.py` reports lifecycle and addressing details, verifies SSH and cloud-init,
+`workstation key` displays the public-key fingerprint, EC2 key name, and public
+and private key locations. `status.py` reports lifecycle and addressing details,
+includes an **SSH Identity** section for both key files, EC2 registration, and
+fingerprint equality, verifies SSH and cloud-init,
 and displays the OpenTofu, Git, GitHub CLI, and Python versions plus the bootstrap
 completion time, instance-profile attachment, IMDS availability, temporary
 credentials, STS identity, and an overall health summary. On the first SSH login, run
@@ -226,7 +253,8 @@ credentials, STS identity, and an overall health summary. On the first SSH login
 `workstation destroy` finds every managed workstation by tags, asks for confirmation,
 terminates it, waits, and removes the now-unused instance profile and IAM role.
 Automation can explicitly use `workstation destroy --yes`. The tagged security
-group and imported EC2 key pair are retained for the next run.
+group and bootstrap EC2 key registration are retained for future launcher access;
+the workstation-owned EC2 key registration is removed with the workstation.
 
 ## Troubleshooting
 
@@ -240,17 +268,21 @@ group and imported EC2 key pair are retained for the next run.
 * **SSH timeout:** verify the subnet route, network ACL, public IP, and
   `LCW_SSH_CIDR`. Confirm your local firewall permits outbound TCP/22.
 * **Key mismatch:** if no managed workstation exists, launch warns and
-  automatically replaces the stale EC2 registration with `LCW_PUBLIC_KEY`. The
+  automatically replaces the stale bootstrap EC2 registration with
+  `LCW_PUBLIC_KEY`. The
   local private key is not changed. If a managed workstation still exists, the
   mismatch remains fatal; destroy it first or choose a new `LCW_KEY_NAME` so the
   launcher cannot accidentally make an existing workstation inaccessible.
   This is expected when returning in a fresh CloudShell: `workstation destroy`
   retains the EC2 key-pair registration, but a fresh CloudShell without the
   previous `~/.ssh/id_ed25519` generates a different key. Because the default
-  `LCW_KEY_NAME` is reused in the same account and region, the launcher refuses
+  `LCW_BOOTSTRAP_KEY_NAME` is reused in the same account and region, the launcher refuses
   to replace that registration while a managed instance exists. Preserve and
   restore the original SSH key, allow automatic replacement after destroying
-  the instance, or set a unique `LCW_KEY_NAME` for each ephemeral environment.
+  the instance, or set a unique `LCW_BOOTSTRAP_KEY_NAME` for each ephemeral environment.
+  A mismatch reported by `workstation key` or `workstation doctor` concerns the
+  durable studio identity instead; inspect it with `workstation key --check` and
+  replace its EC2 registration only through `workstation key --replace`.
 * **Bootstrap failure:** SSH in and inspect `/var/log/cloud-init-output.log` and
   `/var/log/launch-control-bootstrap.log`.
 * **Expiration bootstrap reports `codebuild:CreateProject` denied:** rerun

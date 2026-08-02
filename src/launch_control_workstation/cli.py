@@ -7,7 +7,7 @@ import importlib
 import sys
 from collections.abc import Sequence
 
-COMMANDS = ("launch", "doctor", "status", "ssh", "destroy", "version")
+COMMANDS = ("launch", "doctor", "status", "key", "ssh", "destroy", "version")
 
 
 def main(argv: Sequence[str] | None = None) -> int:
