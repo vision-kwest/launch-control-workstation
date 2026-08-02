@@ -66,6 +66,9 @@ class Config:
     ssh_cidr: str = field(default_factory=lambda: os.getenv("LCW_SSH_CIDR", "0.0.0.0/0"))
     public_key: Path = field(default_factory=lambda: Path(os.getenv("LCW_PUBLIC_KEY", "~/.ssh/id_ed25519.pub")).expanduser())
     key_name: str = field(default_factory=lambda: os.getenv("LCW_KEY_NAME", "launch-control-workstation"))
+    bootstrap_key_name: str = field(default_factory=lambda: os.getenv(
+        "LCW_BOOTSTRAP_KEY_NAME", "launch-control-workstation-bootstrap"
+    ))
     security_group_name: str = field(default_factory=lambda: os.getenv("LCW_SECURITY_GROUP", "launch-control-workstation"))
     version: str = __version__
 

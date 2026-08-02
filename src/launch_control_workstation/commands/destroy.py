@@ -40,6 +40,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         aws(["ec2", "terminate-instances", "--instance-ids", *ids], config)
         aws(["ec2", "wait", "instance-terminated", "--instance-ids", *ids], config, json_output=False)
         logging.ok("Control workstation terminated.")
+        aws(["ec2", "delete-key-pair", "--key-name", config.key_name], config)
+        logging.ok(f"Workstation-owned EC2 key pair {config.key_name} removed.")
         if cleanup(config):
             logging.ok("IAM instance profile and role removed.")
         return 0

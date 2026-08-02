@@ -30,10 +30,12 @@ class HealthReport:
     tools: tuple[Check, ...] = ()
     aws_authentication: tuple[Check, ...] = ()
     system: tuple[Check, ...] = ()
+    ssh_identity: tuple[Check, ...] = ()
 
     @property
     def checks(self) -> tuple[Check, ...]:
-        return self.infrastructure + self.connectivity + self.provisioning + self.tools + self.aws_authentication + self.system
+        return (self.infrastructure + self.connectivity + self.provisioning + self.tools
+                + self.aws_authentication + self.ssh_identity + self.system)
 
     @property
     def healthy(self) -> bool:
@@ -46,7 +48,7 @@ class HealthReport:
 
 def injected_key_health(instance: Instance, config: Config) -> Check:
     """Verify EC2 records the exact key-pair name validated by the launcher."""
-    return Check("SSH key injected", instance.key_name == config.key_name,
+    return Check("SSH key injected", instance.key_name == config.bootstrap_key_name,
                  instance.key_name or "no EC2 key pair recorded")
 
 
@@ -118,13 +120,20 @@ def remote_health(host: str, config: Config) -> HealthReport:
     imds = _remote(host, config, "IMDS available", "t=$(curl -fsS --max-time 2 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token) && curl -fsS --max-time 2 -H \"X-aws-ec2-metadata-token: $t\" http://169.254.169.254/latest/meta-data/iam/security-credentials/ | head -n1")
     credentials = _remote(host, config, "Temporary credentials", "aws configure list 2>/dev/null | grep -q 'iam-role' && echo 'IMDS role credentials'")
     sts = _remote(host, config, "STS authentication", "env -u AWS_ACCESS_KEY_ID -u AWS_SECRET_ACCESS_KEY -u AWS_SESSION_TOKEN -u AWS_PROFILE AWS_SHARED_CREDENTIALS_FILE=/dev/null aws sts get-caller-identity --output json")
+    identity = tuple(_remote(host, config, name, command) for name, command in (
+        ("Private key exists", "test -f ~/.ssh/id_ed25519 && echo ~/.ssh/id_ed25519"),
+        ("Public key exists", "test -f ~/.ssh/id_ed25519.pub && echo ~/.ssh/id_ed25519.pub"),
+        ("EC2 key registered", f"aws ec2 describe-key-pairs --key-names {config.key_name} --query 'KeyPairs[0].KeyName' --output text"),
+        ("Fingerprints match", "workstation key --check"),
+    ))
     system = tuple(_remote(host, config, name, command) for name, command in (
         ("Uptime", "uptime -p"),
         ("Reboot pending", "if [ -e /var/run/reboot-required ]; then echo pending; exit 1; else echo not pending; fi"),
         ("Disk", "p=$(df -P / | awk 'NR==2 {gsub(/%/,\"\",$5); print $5}'); echo \"${p}% used\"; [ \"$p\" -lt 90 ]"),
         ("Memory", "a=$(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo); echo \"${a} MiB available\"; [ \"$a\" -ge 256 ]")))
     return HealthReport(connectivity=(port, auth), provisioning=(cloud, bootstrap), tools=tools,
-                        aws_authentication=(profile, imds, credentials, sts), system=system)
+                        aws_authentication=(profile, imds, credentials, sts),
+                        ssh_identity=identity, system=system)
 
 
 def check(instance: Instance, config: Config) -> HealthReport:
@@ -136,7 +145,8 @@ def check(instance: Instance, config: Config) -> HealthReport:
     remote = remote_health(instance.public_ip, config)
     return HealthReport(infrastructure=infra, connectivity=remote.connectivity,
                         provisioning=remote.provisioning, tools=remote.tools,
-                        aws_authentication=remote.aws_authentication, system=remote.system)
+                        aws_authentication=remote.aws_authentication,
+                        ssh_identity=remote.ssh_identity, system=remote.system)
 
 
 def wait_for_cloud_init(host: str, config: Config, *, interval: float = 10) -> str:
