@@ -22,6 +22,7 @@ from launch_control_workstation.aws import (
 from launch_control_workstation.config import Config
 from launch_control_workstation.doctor import diagnose
 from launch_control_workstation.health import (
+    HealthReport,
     authenticate,
     injected_key_health,
     wait_for_cloud_init,
@@ -184,7 +185,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         logging.ok(f"cloud-init complete. ({time.monotonic() - cloud_started:.1f}s)")
         health_started = time.monotonic()
         logging.info("Waiting for all workstation health checks...")
-        wait_until_healthy(instance, config)
+
+        def report_pending(report: HealthReport) -> None:
+            pending = "; ".join(report.errors)
+            logging.info(f"Health checks still pending: {pending}. Retrying in 10s...")
+
+        wait_until_healthy(instance, config, on_pending=report_pending)
         logging.ok(f"Health checks passed. ({time.monotonic() - health_started:.1f}s)")
         logging.ok("All workstation health checks passed.")
         logging.ok(f"Total launch time: {time.monotonic() - total_started:.1f}s.")
