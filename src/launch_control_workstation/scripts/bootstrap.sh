@@ -28,14 +28,21 @@ export PIPX_BIN_DIR=/usr/local/bin
 export PATH="${PIPX_BIN_DIR}:${PATH}"
 pipx --version
 
-if pipx list --short | grep -q '^launch-control-workstation '; then
-  pipx upgrade launch-control-workstation
-else
-  pipx install launch-control-workstation
-fi
+# Install a source revision known to implement the launcher's bootstrap
+# contract. PyPI can lag behind the launcher, so accepting its latest release
+# could leave bootstrap without commands that the launcher already relies on.
+expected_cli_version=__LCW_VERSION__
+cli_source_revision=b14869cadf1db6b704c5e7661c8ac26ae3ab7f7f
+cli_install_source="git+https://github.com/Vision-Kwest/launch-control-workstation.git@${cli_source_revision}"
+pipx install --force "$cli_install_source"
 
-# A broken or incomplete published package must stop cloud-init immediately.
-workstation version
+# A missing, broken, or unexpectedly-versioned CLI must stop cloud-init before
+# any launcher-dependent commands are invoked.
+installed_cli_version="$(workstation version)"
+if [ "$installed_cli_version" != "$expected_cli_version" ]; then
+  echo "Bootstrap CLI version mismatch: expected ${expected_cli_version}, installed ${installed_cli_version}" >&2
+  exit 1
+fi
 
 # The durable control node, not the ephemeral launcher, owns the studio SSH
 # identity. Run as the login user so the files live on its persistent root disk.

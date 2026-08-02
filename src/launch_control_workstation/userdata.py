@@ -26,5 +26,6 @@ def render(config: Config | None = None) -> str:
     script = (ROOT / "scripts" / "bootstrap.sh").read_text(encoding="utf-8")
     script = script.replace("__LCW_REGION__", shlex.quote(config.region))
     script = script.replace("__LCW_KEY_NAME__", shlex.quote(config.key_name))
+    script = script.replace("__LCW_VERSION__", shlex.quote(config.version))
     indented = "\n".join(f"      {line}" for line in script.splitlines())
     return template.replace("      __BOOTSTRAP_SCRIPT__", indented)
