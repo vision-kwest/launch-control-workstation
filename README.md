@@ -26,7 +26,7 @@ install Docker, graphics drivers, desktop software, or DCC tools.
 * Python 3.12+
 * AWS CLI v2 authenticated by the current CloudShell session (do not run
   `aws configure`) with permission to use EC2, IAM, S3, SSM, CloudWatch, STS,
-  CodeBuild, and read the EC2 Service Quotas API
+  CodeBuild, EventBridge Scheduler, and read the EC2 Service Quotas API
 * Git
 * `ssh` and `ssh-keygen` (a default ED25519 key is created automatically when neither key file exists)
 * A default VPC with at least one default subnet and an internet route
@@ -57,6 +57,14 @@ The role uses these AWS-managed policies initially:
 | `AmazonSSMFullAccess` | Resolve parameters and manage instances through Systems Manager. |
 | `CloudWatchFullAccessV2` | Publish and manage studio metrics, logs, and alarms. |
 | `AWSCodeBuildAdminAccess` | Create and operate the shared automatic-expiration project used by studio infrastructure. |
+
+The role also has a least-privilege inline policy for automatic expiration. It
+can manage only EventBridge Scheduler schedules named `studio-expiry-*` in the
+configured region and account, and can pass only the
+`studio-expiration-scheduler` role to `scheduler.amazonaws.com`. Rerun
+`workstation launch` from the authorized CloudShell environment to reconcile
+this policy onto an existing workstation role; do not configure static AWS
+credentials on the workstation.
 
 These policies are centralized in `iam.py`, where they can be replaced with
 studio-specific customer-managed policies as the infrastructure permission set

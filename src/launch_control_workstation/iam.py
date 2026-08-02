@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 from .aws import AwsError, aws
@@ -9,6 +10,7 @@ from .config import Config
 
 ROLE_NAME = "launch-control-workstation"
 PROFILE_NAME = "launch-control-workstation"
+SCHEDULER_POLICY_NAME = "studio-expiration-scheduler-access"
 
 # EC2 operations are the workstation's primary purpose, including provisioning
 # and managing the studio's compute fleet.
@@ -30,6 +32,51 @@ MANAGED_POLICIES = {
 }
 
 
+def scheduler_policy(account_id: str, region: str) -> dict[str, object]:
+    """Return least-privilege access to studio automatic-expiration schedules."""
+    return {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Sid": "ManageStudioExpirySchedules",
+                "Effect": "Allow",
+                "Action": [
+                    "scheduler:CreateSchedule",
+                    "scheduler:GetSchedule",
+                    "scheduler:UpdateSchedule",
+                    "scheduler:DeleteSchedule",
+                ],
+                "Resource": (
+                    f"arn:aws:scheduler:{region}:{account_id}:"
+                    "schedule/default/studio-expiry-*"
+                ),
+            },
+            {
+                "Sid": "PassStudioExpirationSchedulerRole",
+                "Effect": "Allow",
+                "Action": "iam:PassRole",
+                "Resource": (
+                    f"arn:aws:iam::{account_id}:role/studio-expiration-scheduler"
+                ),
+                "Condition": {
+                    "StringEquals": {
+                        "iam:PassedToService": "scheduler.amazonaws.com",
+                    },
+                },
+            },
+        ],
+    }
+
+
+def _account_id(role: dict[str, object]) -> str:
+    """Extract the owning account from an IAM role ARN."""
+    arn = str(role.get("Arn", ""))
+    parts = arn.split(":")
+    if len(parts) < 6 or not parts[4]:
+        raise AwsError(f"IAM role {ROLE_NAME} returned an invalid ARN: {arn or 'missing'}")
+    return parts[4]
+
+
 @dataclass(frozen=True)
 class ProfileState:
     """Describe the role and instance profile ensured by the launcher."""
@@ -41,15 +88,19 @@ class ProfileState:
 def ensure(config: Config) -> ProfileState:
     """Create or validate the EC2 role/profile and attach documented policies."""
     try:
-        aws(["iam", "get-role", "--role-name", ROLE_NAME], config)
+        role = aws(["iam", "get-role", "--role-name", ROLE_NAME], config).get("Role", {})
     except AwsError:
         trust = '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
-        aws(["iam", "create-role", "--role-name", ROLE_NAME,
-             "--assume-role-policy-document", trust,
-             "--description", "Temporary AWS credentials for the Control Workstation"], config)
+        role = aws(["iam", "create-role", "--role-name", ROLE_NAME,
+                    "--assume-role-policy-document", trust,
+                    "--description", "Temporary AWS credentials for the Control Workstation"], config).get("Role", {})
     for policy_arn in MANAGED_POLICIES:
         aws(["iam", "attach-role-policy", "--role-name", ROLE_NAME,
              "--policy-arn", policy_arn], config)
+    account_id = _account_id(role)
+    aws(["iam", "put-role-policy", "--role-name", ROLE_NAME,
+         "--policy-name", SCHEDULER_POLICY_NAME,
+         "--policy-document", json.dumps(scheduler_policy(account_id, config.region))], config)
     try:
         profile = aws(["iam", "get-instance-profile", "--instance-profile-name", PROFILE_NAME], config)
     except AwsError:
@@ -84,6 +135,13 @@ def validate(config: Config) -> None:
     missing = set(MANAGED_POLICIES) - policy_arns
     if missing:
         raise AwsError(f"IAM role {ROLE_NAME} is missing policies: {', '.join(sorted(missing))}")
+    account_id = _account_id(role)
+    inline = aws(["iam", "get-role-policy", "--role-name", ROLE_NAME,
+                  "--policy-name", SCHEDULER_POLICY_NAME], config)
+    if inline.get("PolicyDocument") != scheduler_policy(account_id, config.region):
+        raise AwsError(
+            f"IAM role {ROLE_NAME} has a stale or malformed {SCHEDULER_POLICY_NAME} policy"
+        )
 
 
 def attach(instance_id: str, config: Config) -> None:
@@ -113,6 +171,8 @@ def cleanup(config: Config) -> bool:
         aws(["iam", "remove-role-from-instance-profile", "--instance-profile-name", PROFILE_NAME,
              "--role-name", ROLE_NAME], config)
         aws(["iam", "delete-instance-profile", "--instance-profile-name", PROFILE_NAME], config)
+        aws(["iam", "delete-role-policy", "--role-name", ROLE_NAME,
+             "--policy-name", SCHEDULER_POLICY_NAME], config)
         for policy_arn in MANAGED_POLICIES:
             aws(["iam", "detach-role-policy", "--role-name", ROLE_NAME,
                  "--policy-arn", policy_arn], config)
@@ -126,6 +186,7 @@ def cleanup(config: Config) -> bool:
 
 def required_actions() -> tuple[str, ...]:
     """Return launcher permissions used by read-only doctor policy simulation."""
-    return ("iam:CreateRole", "iam:AttachRolePolicy", "iam:CreateInstanceProfile",
+    return ("iam:CreateRole", "iam:AttachRolePolicy", "iam:PutRolePolicy",
+            "iam:CreateInstanceProfile",
             "iam:AddRoleToInstanceProfile", "iam:PassRole",
             "ec2:AssociateIamInstanceProfile", "ec2:ReplaceIamInstanceProfileAssociation")

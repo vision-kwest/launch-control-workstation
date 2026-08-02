@@ -16,7 +16,7 @@ from launch_control_workstation.cli import main as cli_main
 from launch_control_workstation.commands.launch import launch
 from launch_control_workstation.config import Config
 from launch_control_workstation.health import Check, HealthReport
-from launch_control_workstation.iam import MANAGED_POLICIES
+from launch_control_workstation.iam import MANAGED_POLICIES, scheduler_policy
 from launch_control_workstation.ssh import command
 from launch_control_workstation.userdata import render
 
@@ -47,6 +47,33 @@ class CoreTests(unittest.TestCase):
             "arn:aws:iam::aws:policy/AWSCodeBuildAdminAccess",
             MANAGED_POLICIES,
         )
+
+    def test_instance_role_has_scoped_expiration_scheduler_access(self) -> None:
+        """Expiration access cannot manage unrelated schedules or pass other roles."""
+        policy = scheduler_policy("123456789012", "us-east-1")
+        schedule, pass_role = policy["Statement"]
+
+        self.assertEqual(set(schedule["Action"]), {
+            "scheduler:CreateSchedule",
+            "scheduler:GetSchedule",
+            "scheduler:UpdateSchedule",
+            "scheduler:DeleteSchedule",
+        })
+        self.assertEqual(
+            schedule["Resource"],
+            "arn:aws:scheduler:us-east-1:123456789012:"
+            "schedule/default/studio-expiry-*",
+        )
+        self.assertEqual(pass_role["Action"], "iam:PassRole")
+        self.assertEqual(
+            pass_role["Resource"],
+            "arn:aws:iam::123456789012:role/studio-expiration-scheduler",
+        )
+        self.assertEqual(
+            pass_role["Condition"]["StringEquals"]["iam:PassedToService"],
+            "scheduler.amazonaws.com",
+        )
+        self.assertFalse(any("SchedulerFullAccess" in arn for arn in MANAGED_POLICIES))
 
     def test_release_contract(self) -> None:
         """Protect the version source and tag-gated PyPI publishing contract."""

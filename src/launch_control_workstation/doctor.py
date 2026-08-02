@@ -40,8 +40,8 @@ def _iam_permission_diagnostics(identity: dict[str, object], config: Config) -> 
                     "--action-names", *actions], config)
         decisions = {item["EvalActionName"]: item["EvalDecision"]
                      for item in data.get("EvaluationResults", [])}
-        iam_actions = actions[:5]
-        ec2_actions = actions[5:]
+        iam_actions = tuple(action for action in actions if action.startswith("iam:"))
+        ec2_actions = tuple(action for action in actions if action.startswith("ec2:"))
         iam_ok = all(decisions.get(action) == "allowed" for action in iam_actions)
         ec2_ok = all(decisions.get(action) == "allowed" for action in ec2_actions)
         return (
