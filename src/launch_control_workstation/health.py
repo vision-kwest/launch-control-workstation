@@ -129,9 +129,15 @@ def remote_health(host: str, config: Config) -> HealthReport:
         return HealthReport(connectivity=(port, auth))
     probes = (
         ("cloud-init", "cloud-init status"),
-        ("bootstrap", "cat /var/lib/launch-control-workstation/bootstrap-completed"),
-        ("OpenTofu", "tofu version | head -n1"), ("Git", "git --version"),
-        ("GitHub CLI", "gh --version | head -n1"), ("Python", "python3 --version"),
+        ("bootstrap", "if test -f /var/lib/launch-control-workstation/bootstrap-completed; "
+         "then cat /var/lib/launch-control-workstation/bootstrap-completed; else "
+         "echo 'bootstrap completion marker missing; recent bootstrap log:'; "
+         "tail -n 20 /var/log/launch-control-bootstrap.log 2>&1 || echo 'bootstrap log unavailable'; "
+         "exit 1; fi"),
+        ("OpenTofu", "command -v tofu >/dev/null 2>&1 && tofu version | head -n1"),
+        ("Git", "command -v git >/dev/null 2>&1 && git --version"),
+        ("GitHub CLI", "command -v gh >/dev/null 2>&1 && gh --version | head -n1"),
+        ("Python", "command -v python3 >/dev/null 2>&1 && python3 --version"),
         ("Instance Profile attached", "t=$(curl -fsS --max-time 2 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token) && curl -fsS --max-time 2 -H \"X-aws-ec2-metadata-token: $t\" http://169.254.169.254/latest/meta-data/iam/info | grep -q InstanceProfileArn && echo attached"),
         ("IMDS available", "t=$(curl -fsS --max-time 2 -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 60' http://169.254.169.254/latest/api/token) && curl -fsS --max-time 2 -H \"X-aws-ec2-metadata-token: $t\" http://169.254.169.254/latest/meta-data/iam/security-credentials/ | head -n1"),
         ("Temporary credentials", "aws configure list 2>/dev/null | grep -q 'iam-role' && echo 'IMDS role credentials'"),

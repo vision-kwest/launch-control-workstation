@@ -238,8 +238,23 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn("__BOOTSTRAP_SCRIPT__", user_data)
         self.assertNotIn("__LCW_REGION__", user_data)
         self.assertNotIn("__LCW_KEY_NAME__", user_data)
+        self.assertNotIn("__LCW_VERSION__", user_data)
         self.assertIn("workstation key", user_data)
         self.assertIn("condition: test -f /var/run/reboot-required", user_data)
+
+    def test_cloud_init_installs_and_verifies_launcher_cli_version(self) -> None:
+        """Bootstrap uses a compatible pinned source and rejects version drift."""
+        user_data = render(Config(version="9.8.7"))
+
+        self.assertIn(
+            "git+https://github.com/Vision-Kwest/launch-control-workstation.git@${cli_source_revision}",
+            user_data,
+        )
+        self.assertIn("cli_source_revision=b14869cadf1db6b704c5e7661c8ac26ae3ab7f7f", user_data)
+        self.assertIn("expected_cli_version=9.8.7", user_data)
+        self.assertIn('installed_cli_version="$(workstation version)"', user_data)
+        self.assertIn('if [ "$installed_cli_version" != "$expected_cli_version" ]', user_data)
+        self.assertLess(user_data.index("workstation version"), user_data.index("workstation key"))
 
     def test_ssh_command_uses_matching_private_key(self) -> None:
         """Confirm SSH derives the private path from the configured public key.
@@ -309,6 +324,41 @@ class CoreTests(unittest.TestCase):
         report = remote_health("192.0.2.1", Config())
         self.assertFalse(report.healthy)
         self.assertIn("cloud-init: slow", report.errors)
+
+    @patch("launch_control_workstation.health.run")
+    @patch("launch_control_workstation.health.socket.create_connection")
+    def test_remote_health_rejects_missing_tools_and_reports_bootstrap_log(
+            self, connection: Mock, ssh_run: Mock) -> None:
+        """Executable guards and the application marker drive remote health."""
+        from launch_control_workstation.health import remote_health
+
+        connection.return_value.__enter__ = Mock()
+        connection.return_value.__exit__ = Mock(return_value=False)
+
+        def result_for(_host: str, _config: Config, command: str, **_kwargs: object) -> Mock:
+            if command == "printf AUTHENTICATED":
+                return Mock(returncode=0, stdout="AUTHENTICATED", stderr="")
+            if command == "cloud-init status":
+                return Mock(returncode=0, stdout="status: done", stderr="")
+            if "bootstrap-completed" in command:
+                return Mock(returncode=1, stdout=(
+                    "bootstrap completion marker missing; recent bootstrap log:\n"
+                    "workstation: error: invalid choice: 'key'"
+                ), stderr="")
+            if "command -v tofu" in command or "command -v gh" in command:
+                return Mock(returncode=127, stdout="", stderr="command not found")
+            return Mock(returncode=0, stdout="ok", stderr="")
+
+        ssh_run.side_effect = result_for
+        report = remote_health("192.0.2.1", Config())
+
+        checks = {item.name: item for item in report.checks}
+        self.assertTrue(checks["cloud-init"].passed)
+        self.assertFalse(checks["bootstrap"].passed)
+        self.assertIn("completion marker missing", checks["bootstrap"].detail)
+        self.assertIn("invalid choice: 'key'", checks["bootstrap"].detail)
+        self.assertFalse(checks["OpenTofu"].passed)
+        self.assertFalse(checks["GitHub CLI"].passed)
 
     @patch("launch_control_workstation.doctor.shutil.which", return_value=None)
     def test_doctor_reports_every_check_without_aws(self, which: Mock) -> None:
