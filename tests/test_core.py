@@ -250,7 +250,7 @@ class CoreTests(unittest.TestCase):
             "git+https://github.com/Vision-Kwest/launch-control-workstation.git@${cli_source_revision}",
             user_data,
         )
-        self.assertIn("cli_source_revision=b14869cadf1db6b704c5e7661c8ac26ae3ab7f7f", user_data)
+        self.assertIn("cli_source_revision=c00e134fb16e193d2bfa8306d8a5ae1126c84e6f", user_data)
         self.assertIn("expected_cli_version=9.8.7", user_data)
         self.assertIn('installed_cli_version="$(workstation version)"', user_data)
         self.assertIn('if [ "$installed_cli_version" != "$expected_cli_version" ]', user_data)
