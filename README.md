@@ -282,7 +282,10 @@ the workstation-owned EC2 key registration is removed with the workstation.
   the instance, or set a unique `LCW_BOOTSTRAP_KEY_NAME` for each ephemeral environment.
   A mismatch reported by `workstation key` or `workstation doctor` concerns the
   durable studio identity instead; inspect it with `workstation key --check` and
-  replace its EC2 registration only through `workstation key --replace`.
+  preserve the registration by relaunching with a unique `LCW_KEY_NAME`, or,
+  only after confirming no other workstation uses it, replace its EC2
+  registration through `workstation key --replace`. Bootstrap never performs
+  this durable replacement automatically.
 * **Bootstrap failure:** SSH in and inspect `/var/log/cloud-init-output.log` and
   `/var/log/launch-control-bootstrap.log`.
 * **Expiration bootstrap reports `codebuild:CreateProject` denied:** rerun

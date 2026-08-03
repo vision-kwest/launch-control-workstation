@@ -31,7 +31,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             if not private_key.is_file() or not config.public_key.is_file():
                 raise AwsError("Control Workstation SSH key pair is incomplete or missing")
         else:
-            ensure_key_pair(config, replace=args.replace)
+            ensure_key_pair(
+                config,
+                replace=args.replace,
+                mismatch_recovery="workstation key --replace",
+            )
 
         fingerprint = run(["ssh-keygen", "-lf", str(config.public_key)])
         if fingerprint.returncode:

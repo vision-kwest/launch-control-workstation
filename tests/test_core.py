@@ -38,6 +38,14 @@ class CoreTests(unittest.TestCase):
         self.assertTrue(ensure.call_args.kwargs["replace"])
         self.assertEqual(ensure.call_args.kwargs["key_name"],
                          "launch-control-workstation-bootstrap")
+        self.assertEqual(
+            ensure.call_args.kwargs["mismatch_recovery"],
+            "workstation launch --replace-key-pair",
+        )
+        self.assertEqual(
+            ensure.call_args.kwargs["mismatch_name_variable"],
+            "LCW_BOOTSTRAP_KEY_NAME",
+        )
 
     @patch("launch_control_workstation.commands.key.Config")
     @patch("launch_control_workstation.commands.key.run")
@@ -59,6 +67,10 @@ class CoreTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         ensure.assert_called_once()
+        self.assertEqual(
+            ensure.call_args.kwargs["mismatch_recovery"],
+            "workstation key --replace",
+        )
         self.assertIn("Fingerprint: SHA256:studio-key", output.getvalue())
         self.assertIn("EC2 key name: launch-control-workstation", output.getvalue())
         self.assertIn("Public key: /home/ubuntu/.ssh/id_ed25519.pub", output.getvalue())
@@ -240,6 +252,11 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn("__LCW_KEY_NAME__", user_data)
         self.assertNotIn("__LCW_VERSION__", user_data)
         self.assertIn("workstation key", user_data)
+        key_failure_guidance = user_data[user_data.index("Durable workstation key registration failed"):
+                                         user_data.index("install -d -m 0755 /etc/apt/keyrings")]
+        self.assertIn("workstation key --replace", key_failure_guidance)
+        self.assertIn("unique LCW_KEY_NAME", key_failure_guidance)
+        self.assertNotIn("--replace-key-pair", key_failure_guidance)
         self.assertIn("condition: test -f /var/run/reboot-required", user_data)
 
     def test_cloud_init_installs_and_verifies_launcher_cli_version(self) -> None:
