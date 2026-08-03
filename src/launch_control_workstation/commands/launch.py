@@ -92,7 +92,9 @@ def launch(config: Config, *, replace_key_pair: bool = False) -> str:
     # for ephemeral launch environments such as CloudShell. Keep the explicit
     # flag for CLI compatibility; its existing-instance guard remains above.
     ensure_key_pair(config, replace=replace_key_pair or not existing,
-                    key_name=config.bootstrap_key_name)
+                    key_name=config.bootstrap_key_name,
+                    mismatch_recovery="workstation launch --replace-key-pair",
+                    mismatch_name_variable="LCW_BOOTSTRAP_KEY_NAME")
     if existing:
         instance = existing[0]
         if instance.state == "stopped":

@@ -165,7 +165,9 @@ def ensure_security_group(vpc_id: str, config: Config) -> str:
 
 
 def ensure_key_pair(config: Config, *, replace: bool = False,
-                    key_name: str | None = None) -> None:
+                    key_name: str | None = None,
+                    mismatch_recovery: str | None = None,
+                    mismatch_name_variable: str = "LCW_KEY_NAME") -> None:
     """Ensure matching local Ed25519 files and an EC2 key-pair registration.
 
     If neither local key file exists, ``ssh-keygen`` creates the pair without a
@@ -174,7 +176,9 @@ def ensure_key_pair(config: Config, *, replace: bool = False,
     key is imported into EC2 when necessary, then local and remote fingerprints
     are compared so a reused EC2 key-pair name cannot lock the user out.  When
     ``replace`` is explicitly requested, a mismatched EC2 registration is
-    deleted and re-imported; local key material is never changed.
+    deleted and re-imported; local key material is never changed.  Callers may
+    supply their own mismatch recovery command because the durable workstation
+    identity and the launcher's bootstrap identity have different interfaces.
 
     Raises:
         AwsError: If key generation or validation fails, local files are
@@ -210,11 +214,17 @@ def ensure_key_pair(config: Config, *, replace: bool = False,
     comparable_local = local_fingerprint.removeprefix("SHA256:")
     if comparable_remote and comparable_local != comparable_remote:
         if not replace:
+            recovery = (
+                f"Rerun with `{mismatch_recovery}` to replace only the EC2 "
+                f"registration, or use a different {mismatch_name_variable}."
+                if mismatch_recovery else
+                "Use a different EC2 key-pair name, or explicitly replace the "
+                "registration only after confirming it is unused."
+            )
             raise AwsError(
                 f"EC2 key pair '{registration_name}' does not match {config.public_key} "
                 f"(EC2 {remote_fingerprint}, local {local_fingerprint}). "
-                "Rerun with --replace-key-pair to replace only the EC2 registration, "
-                "or use a different LCW_KEY_NAME."
+                f"{recovery}"
             )
         logging.warn(
             f"EC2 key pair '{registration_name}' does not match {config.public_key}; "

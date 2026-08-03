@@ -52,8 +52,18 @@ fi
 install -d -o ubuntu -g ubuntu -m 0700 /home/ubuntu/.ssh
 bootstrap_region=__LCW_REGION__
 studio_key_name=__LCW_KEY_NAME__
-runuser -u ubuntu -- env HOME=/home/ubuntu LCW_REGION="$bootstrap_region" \
-  LCW_KEY_NAME="$studio_key_name" workstation key
+if ! runuser -u ubuntu -- env HOME=/home/ubuntu LCW_REGION="$bootstrap_region" \
+  LCW_KEY_NAME="$studio_key_name" workstation key; then
+  cat >&2 <<EOF
+Durable workstation key registration failed. If LCW_KEY_NAME '${studio_key_name}'
+is already registered to another public key, choose one of these recovery paths:
+  1. Preserve the existing registration and relaunch with a unique LCW_KEY_NAME.
+  2. Only after confirming no other workstation uses it, deliberately replace it
+     from that workstation with: workstation key --replace
+The bootstrap process will not replace a durable registration automatically.
+EOF
+  exit 1
+fi
 
 install -d -m 0755 /etc/apt/keyrings
 curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /etc/apt/keyrings/githubcli-archive-keyring.gpg
