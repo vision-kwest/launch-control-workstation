@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -14,6 +16,34 @@ from .process import run
 
 class AwsError(RuntimeError):
     """An AWS CLI command failed."""
+
+
+def ssh_fingerprint_digest(value: str) -> bytes:
+    """Decode an OpenSSH or EC2 SHA-256 fingerprint into digest bytes.
+
+    OpenSSH includes a ``SHA256:`` prefix and commonly omits Base64 padding,
+    whereas EC2 may return the same digest without the prefix and with padding.
+    Invalid Base64 is rejected so corrupt fingerprints can never compare equal.
+    """
+    encoded = value.removeprefix("SHA256:")
+    if not encoded:
+        raise ValueError("empty SSH fingerprint")
+    padded = encoded + "=" * (-len(encoded) % 4)
+    try:
+        digest = base64.b64decode(padded, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise ValueError(f"malformed SSH fingerprint: {value!r}") from exc
+    if len(digest) != 32:
+        raise ValueError(f"SSH SHA-256 fingerprint has {len(digest)} decoded bytes, expected 32")
+    canonical = base64.b64encode(digest).decode("ascii")
+    if encoded not in (canonical, canonical.rstrip("=")):
+        raise ValueError(f"malformed SSH fingerprint: {value!r}")
+    return digest
+
+
+def ssh_fingerprints_match(first: str, second: str) -> bool:
+    """Compare two valid SHA-256 SSH fingerprints by decoded digest bytes."""
+    return ssh_fingerprint_digest(first) == ssh_fingerprint_digest(second)
 
 
 def aws(args: Sequence[str], config: Config, *, json_output: bool = True) -> Any:
@@ -208,11 +238,11 @@ def ensure_key_pair(config: Config, *, replace: bool = False,
     if fingerprint.returncode:
         raise AwsError(f"Invalid SSH public key {config.public_key}: {fingerprint.stderr.strip()}")
     local_fingerprint = fingerprint.stdout.split()[1]
-    # EC2 returns imported Ed25519 SHA-256 fingerprints as bare base64, while
-    # OpenSSH prefixes the same digest with ``SHA256:``.
-    comparable_remote = remote_fingerprint.removeprefix("SHA256:")
-    comparable_local = local_fingerprint.removeprefix("SHA256:")
-    if comparable_remote and comparable_local != comparable_remote:
+    try:
+        fingerprints_match = ssh_fingerprints_match(remote_fingerprint, local_fingerprint)
+    except ValueError as exc:
+        raise AwsError(f"Could not compare SSH fingerprints: {exc}") from exc
+    if not fingerprints_match:
         if not replace:
             recovery = (
                 f"Rerun with `{mismatch_recovery}` to replace only the EC2 "

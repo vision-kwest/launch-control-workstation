@@ -6,9 +6,10 @@ All notable changes to this project are documented here.
 
 ### Fixed
 
-- Pin first-boot CLI installation to the revision that normalizes AWS and
-  OpenSSH Ed25519 fingerprints, preventing valid workstation keys from
-  stopping bootstrap.
+- Normalize the optional prefix and Base64 padding in AWS and OpenSSH Ed25519
+  fingerprints, and pin first-boot installation to the corrected revision.
+- Mark terminal bootstrap failures so health polling stops immediately, while
+  repeated nonterminal diagnostic details are replaced by concise heartbeats.
 - Grant the Control Workstation role CodeBuild administration permissions so
   studio infrastructure can bootstrap its shared automatic-expiration project.
 - Grant least-privilege EventBridge Scheduler and constrained role-passing

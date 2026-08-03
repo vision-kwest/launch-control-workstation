@@ -7,7 +7,12 @@ import argparse
 from collections.abc import Sequence
 
 from launch_control_workstation import logging
-from launch_control_workstation.aws import AwsError, aws, ensure_key_pair
+from launch_control_workstation.aws import (
+    AwsError,
+    aws,
+    ensure_key_pair,
+    ssh_fingerprints_match,
+)
 from launch_control_workstation.config import Config
 from launch_control_workstation.process import run
 
@@ -45,7 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not pairs:
             raise AwsError(f"EC2 key pair '{config.key_name}' is not registered")
         remote = pairs[0].get("KeyFingerprint", "")
-        if local.removeprefix("SHA256:") != remote.removeprefix("SHA256:"):
+        if not ssh_fingerprints_match(local, remote):
             raise AwsError(
                 f"EC2 key pair '{config.key_name}' fingerprint differs "
                 f"(EC2 {remote}, local {local})"

@@ -47,6 +47,12 @@ class HealthReport:
     def errors(self) -> tuple[str, ...]:
         return tuple(f"{item.name}: {item.detail}" for item in self.checks if not item.passed)
 
+    @property
+    def permanent_failure(self) -> bool:
+        """Whether bootstrap has recorded a terminal provisioning failure."""
+        return any(item.name == "bootstrap" and item.detail.startswith("BOOTSTRAP_FAILED:")
+                   for item in self.checks)
+
 
 def injected_key_health(instance: Instance, config: Config) -> Check:
     """Verify EC2 records the exact key-pair name validated by the launcher."""
@@ -131,7 +137,10 @@ def remote_health(host: str, config: Config) -> HealthReport:
         ("cloud-init", "cloud-init status"),
         ("bootstrap", "if test -f /var/lib/launch-control-workstation/bootstrap-completed; "
          "then cat /var/lib/launch-control-workstation/bootstrap-completed; else "
-         "echo 'bootstrap completion marker missing; recent bootstrap log:'; "
+         "if test -f /var/lib/launch-control-workstation/bootstrap-failed; then "
+         "echo 'BOOTSTRAP_FAILED:'; cat /var/lib/launch-control-workstation/bootstrap-failed; "
+         "echo 'final bootstrap log:'; "
+         "else echo 'bootstrap still running; recent bootstrap log:'; fi; "
          "tail -n 20 /var/log/launch-control-bootstrap.log 2>&1 || echo 'bootstrap log unavailable'; "
          "exit 1; fi"),
         ("OpenTofu", "command -v tofu >/dev/null 2>&1 && tofu version | head -n1"),
@@ -191,7 +200,8 @@ def wait_for_cloud_init(host: str, config: Config, *, interval: float = 10) -> s
 
 
 def wait_until_healthy(instance: Instance, config: Config, *, interval: float = 10,
-                       on_pending: Callable[[HealthReport], None] | None = None) -> HealthReport:
+                       on_pending: Callable[[HealthReport], None] | None = None,
+                       on_heartbeat: Callable[[], None] | None = None) -> HealthReport:
     """Wait for every health check, reporting each unsuccessful polling pass.
 
     ``on_pending`` lets interactive callers explain which checks are holding up
@@ -200,13 +210,19 @@ def wait_until_healthy(instance: Instance, config: Config, *, interval: float = 
     """
     deadline = time.monotonic() + config.cloud_init_timeout
     last = HealthReport()
+    last_pending_errors: tuple[str, ...] | None = None
     while time.monotonic() < deadline:
         try:
             last = check(instance, config)
             if last.healthy:
                 return last
-            if on_pending is not None:
+            if last.permanent_failure:
+                raise RuntimeError("workstation bootstrap failed permanently: " + "; ".join(last.errors))
+            if on_pending is not None and last.errors != last_pending_errors:
                 on_pending(last)
+            elif on_heartbeat is not None:
+                on_heartbeat()
+            last_pending_errors = last.errors
         except (TimeoutError, OSError):
             pass
         time.sleep(interval)

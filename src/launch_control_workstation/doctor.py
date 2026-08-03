@@ -7,7 +7,7 @@ import shutil
 import sys
 from dataclasses import dataclass
 
-from .aws import AwsError, aws, default_network, find_instances
+from .aws import AwsError, aws, default_network, find_instances, ssh_fingerprints_match
 from .config import Config
 from .iam import required_actions
 from .process import run
@@ -78,8 +78,10 @@ def _identity_diagnostics(config: Config) -> tuple[Diagnostic, ...]:
         return tuple(results)
     registered = bool(pairs)
     remote = pairs[0].get("KeyFingerprint", "") if registered else ""
-    matches = bool(local and remote and
-                   local.removeprefix("SHA256:") == remote.removeprefix("SHA256:"))
+    try:
+        matches = ssh_fingerprints_match(local, remote)
+    except ValueError:
+        matches = False
     results.append(Diagnostic("EC2 key registered", registered, config.key_name))
     results.append(Diagnostic("SSH fingerprints match", matches,
                               f"local={local or 'unavailable'}, EC2={remote or 'unavailable'}"))
