@@ -11,7 +11,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from launch_control_workstation.aws import Instance, ensure_key_pair, tag_spec
+from launch_control_workstation.aws import (
+    Instance,
+    ensure_key_pair,
+    ssh_fingerprint_digest,
+    ssh_fingerprints_match,
+    tag_spec,
+)
 from launch_control_workstation.cli import main as cli_main
 from launch_control_workstation.commands.key import main as key_main
 from launch_control_workstation.commands.launch import launch
@@ -57,9 +63,9 @@ class CoreTests(unittest.TestCase):
         """The helper registers and reports all requested identity metadata."""
         config_class.return_value = Config(public_key=Path("/home/ubuntu/.ssh/id_ed25519.pub"))
         run_call.return_value = Mock(
-            returncode=0, stdout="256 SHA256:studio-key comment (ED25519)\n", stderr="",
+            returncode=0, stdout="256 SHA256:u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA comment (ED25519)\n", stderr="",
         )
-        aws_call.return_value = {"KeyPairs": [{"KeyFingerprint": "studio-key"}]}
+        aws_call.return_value = {"KeyPairs": [{"KeyFingerprint": "u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA="}]}
         output = io.StringIO()
 
         with contextlib.redirect_stdout(output):
@@ -71,7 +77,7 @@ class CoreTests(unittest.TestCase):
             ensure.call_args.kwargs["mismatch_recovery"],
             "workstation key --replace",
         )
-        self.assertIn("Fingerprint: SHA256:studio-key", output.getvalue())
+        self.assertIn("Fingerprint: SHA256:u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA", output.getvalue())
         self.assertIn("EC2 key name: launch-control-workstation", output.getvalue())
         self.assertIn("Public key: /home/ubuntu/.ssh/id_ed25519.pub", output.getvalue())
         self.assertIn("Private key: /home/ubuntu/.ssh/id_ed25519", output.getvalue())
@@ -197,8 +203,12 @@ class CoreTests(unittest.TestCase):
     @patch("launch_control_workstation.aws.aws")
     def test_key_pair_accepts_aws_bare_sha256_fingerprint(self, aws_call: Mock, run_call: Mock) -> None:
         """AWS's bare digest and OpenSSH's prefixed digest compare equally."""
-        aws_call.return_value = {"KeyPairs": [{"KeyFingerprint": "same-digest="}]}
-        run_call.return_value = Mock(returncode=0, stdout="256 SHA256:same-digest= key (ED25519)\n", stderr="")
+        aws_call.return_value = {"KeyPairs": [{"KeyFingerprint": "u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA="}]}
+        run_call.return_value = Mock(
+            returncode=0,
+            stdout="256 SHA256:u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA key (ED25519)\n",
+            stderr="",
+        )
 
         with tempfile.TemporaryDirectory() as directory:
             public_key = Path(directory) / "id_ed25519.pub"
@@ -210,17 +220,57 @@ class CoreTests(unittest.TestCase):
 
     @patch("launch_control_workstation.aws.run")
     @patch("launch_control_workstation.aws.aws")
+    def test_key_pair_accepts_padded_fingerprint_returned_by_import(
+        self, aws_call: Mock, run_call: Mock,
+    ) -> None:
+        """The import response is normalized just like an existing registration."""
+        aws_call.side_effect = [
+            {"KeyPairs": []},
+            {"KeyFingerprint": "u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA="},
+        ]
+        run_call.return_value = Mock(
+            returncode=0,
+            stdout="256 SHA256:u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA key (ED25519)\n",
+            stderr="",
+        )
+
+        with tempfile.TemporaryDirectory() as directory:
+            public_key = Path(directory) / "id_ed25519.pub"
+            public_key.write_text("ssh-ed25519 test\n")
+            public_key.with_suffix("").write_text("private")
+            ensure_key_pair(Config(public_key=public_key))
+
+        self.assertIn("import-key-pair", aws_call.call_args_list[1].args[0])
+
+    def test_fingerprint_normalization_rejects_invalid_and_different_digests(self) -> None:
+        """Only valid encodings of the same 32-byte SHA-256 digest compare equal."""
+        padded = "u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA="
+        unpadded = "SHA256:u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA"
+        self.assertEqual(ssh_fingerprint_digest(padded), ssh_fingerprint_digest(unpadded))
+        self.assertTrue(ssh_fingerprints_match(padded, unpadded))
+        self.assertFalse(ssh_fingerprints_match(
+            padded, "SHA256:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE",
+        ))
+        with self.assertRaisesRegex(ValueError, "malformed SSH fingerprint"):
+            ssh_fingerprints_match("not base64!", "not base64!")
+
+    @patch("launch_control_workstation.aws.run")
+    @patch("launch_control_workstation.aws.aws")
     @patch("launch_control_workstation.aws.logging.warn")
     def test_replace_key_pair_reimports_mismatched_registration(
         self, warn: Mock, aws_call: Mock, run_call: Mock,
     ) -> None:
         """A permitted repair warns and replaces only the stale registration."""
         aws_call.side_effect = [
-            {"KeyPairs": [{"KeyFingerprint": "remote-fingerprint"}]},
+            {"KeyPairs": [{"KeyFingerprint": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="}]},
             "",
-            {"KeyFingerprint": "local-fingerprint"},
+            {"KeyFingerprint": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE="},
         ]
-        run_call.return_value = Mock(returncode=0, stdout="256 local-fingerprint key (ED25519)\n", stderr="")
+        run_call.return_value = Mock(
+            returncode=0,
+            stdout="256 SHA256:AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE key (ED25519)\n",
+            stderr="",
+        )
 
         with tempfile.TemporaryDirectory() as directory:
             public_key = Path(directory) / "id_ed25519.pub"
@@ -252,6 +302,8 @@ class CoreTests(unittest.TestCase):
         self.assertNotIn("__LCW_KEY_NAME__", user_data)
         self.assertNotIn("__LCW_VERSION__", user_data)
         self.assertIn("workstation key", user_data)
+        self.assertIn("bootstrap-failed", user_data)
+        self.assertIn("trap 'status=$?", user_data)
         key_failure_guidance = user_data[user_data.index("Durable workstation key registration failed"):
                                          user_data.index("install -d -m 0755 /etc/apt/keyrings")]
         self.assertIn("workstation key --replace", key_failure_guidance)
@@ -267,7 +319,7 @@ class CoreTests(unittest.TestCase):
             "git+https://github.com/Vision-Kwest/launch-control-workstation.git@${cli_source_revision}",
             user_data,
         )
-        self.assertIn("cli_source_revision=c00e134fb16e193d2bfa8306d8a5ae1126c84e6f", user_data)
+        self.assertIn("cli_source_revision=952d30a02e03454408238f0a5e12a1b61ba592fe", user_data)
         self.assertIn("expected_cli_version=9.8.7", user_data)
         self.assertIn('installed_cli_version="$(workstation version)"', user_data)
         self.assertIn('if [ "$installed_cli_version" != "$expected_cli_version" ]', user_data)
@@ -308,6 +360,50 @@ class CoreTests(unittest.TestCase):
 
         self.assertIs(result, healthy)
         self.assertEqual(observed, [pending])
+
+    @patch("launch_control_workstation.health.time.sleep")
+    @patch("launch_control_workstation.health.time.monotonic", side_effect=[0, 0, 1, 2, 3])
+    @patch("launch_control_workstation.health.check")
+    def test_health_wait_suppresses_repeated_details_with_heartbeat(
+        self, health_check: Mock, monotonic: Mock, sleep: Mock,
+    ) -> None:
+        """Unchanged multiline pending diagnostics are printed once, then summarized."""
+        from launch_control_workstation.health import wait_until_healthy
+
+        pending = HealthReport(provisioning=(Check("bootstrap", False, "line one\nline two"),))
+        healthy = HealthReport(system=(Check("ready", True, "ok"),))
+        health_check.side_effect = [pending, pending, healthy]
+        details = Mock()
+        heartbeat = Mock()
+
+        wait_until_healthy(Instance("i-test", "running"), Config(cloud_init_timeout=3),
+                           interval=0, on_pending=details, on_heartbeat=heartbeat)
+
+        details.assert_called_once_with(pending)
+        heartbeat.assert_called_once_with()
+
+    @patch("launch_control_workstation.health.time.sleep")
+    @patch("launch_control_workstation.health.time.monotonic", side_effect=[0, 0, 1])
+    @patch("launch_control_workstation.health.check")
+    def test_health_wait_stops_immediately_on_bootstrap_failure(
+        self, health_check: Mock, monotonic: Mock, sleep: Mock,
+    ) -> None:
+        """A failure marker is terminal and its final diagnostics are surfaced once."""
+        from launch_control_workstation.health import wait_until_healthy
+
+        failed = HealthReport(provisioning=(Check(
+            "bootstrap", False, "BOOTSTRAP_FAILED:\nexit 1\nfinal bootstrap log:\nbroken",
+        ),))
+        health_check.return_value = failed
+        pending = Mock()
+
+        with self.assertRaisesRegex(RuntimeError, "(?s)bootstrap failed permanently.*broken"):
+            wait_until_healthy(Instance("i-test", "running"), Config(cloud_init_timeout=2),
+                               interval=0, on_pending=pending)
+
+        health_check.assert_called_once()
+        pending.assert_not_called()
+        sleep.assert_not_called()
 
     @patch("launch_control_workstation.health.ThreadPoolExecutor")
     def test_remote_health_probes_use_bounded_parallel_workers(self, executor: Mock) -> None:
@@ -376,6 +472,32 @@ class CoreTests(unittest.TestCase):
         self.assertIn("invalid choice: 'key'", checks["bootstrap"].detail)
         self.assertFalse(checks["OpenTofu"].passed)
         self.assertFalse(checks["GitHub CLI"].passed)
+
+    @patch("launch_control_workstation.doctor.run")
+    @patch("launch_control_workstation.doctor.aws")
+    def test_doctor_accepts_padded_ec2_fingerprint(
+        self, aws_call: Mock, run_call: Mock,
+    ) -> None:
+        """Identity diagnostics share prefix and padding normalization."""
+        from launch_control_workstation.doctor import _identity_diagnostics
+
+        aws_call.return_value = {
+            "KeyPairs": [{
+                "KeyFingerprint": "u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA=",
+            }],
+        }
+        run_call.return_value = Mock(
+            returncode=0,
+            stdout="256 SHA256:u7CDAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAnSA key (ED25519)\n",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            public_key = Path(directory) / "id_ed25519.pub"
+            public_key.write_text("ssh-ed25519 test\n")
+            public_key.with_suffix("").write_text("private")
+            diagnostics = _identity_diagnostics(Config(public_key=public_key))
+
+        matches = next(item for item in diagnostics if item.name == "SSH fingerprints match")
+        self.assertTrue(matches.passed)
 
     @patch("launch_control_workstation.doctor.shutil.which", return_value=None)
     def test_doctor_reports_every_check_without_aws(self, which: Mock) -> None:

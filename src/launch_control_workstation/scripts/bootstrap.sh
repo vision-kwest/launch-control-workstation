@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 exec > >(tee -a /var/log/launch-control-bootstrap.log) 2>&1
+failure_marker=/var/lib/launch-control-workstation/bootstrap-failed
+install -d -m 0755 "$(dirname "$failure_marker")"
+rm -f "$failure_marker"
+trap 'status=$?; printf "Bootstrap failed at %s (exit %s)\n" "$(date --iso-8601=seconds)" "$status" > "$failure_marker"; exit "$status"' ERR
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
@@ -32,10 +36,10 @@ pipx --version
 # contract. PyPI can lag behind the launcher, so accepting its latest release
 # could leave bootstrap without commands that the launcher already relies on.
 expected_cli_version=__LCW_VERSION__
-# Keep this revision at or after the Ed25519 fingerprint-normalization fix.
-# Older revisions interpret AWS's bare SHA-256 digest as different from
-# OpenSSH's ``SHA256:``-prefixed form and abort first-boot key registration.
-cli_source_revision=c00e134fb16e193d2bfa8306d8a5ae1126c84e6f
+# Keep this revision at or after the complete Ed25519 fingerprint-normalization
+# fix. Both the optional prefix and optional Base64 padding must be normalized.
+# Older revisions can abort first-boot key registration for an identical key.
+cli_source_revision=952d30a02e03454408238f0a5e12a1b61ba592fe
 cli_install_source="git+https://github.com/Vision-Kwest/launch-control-workstation.git@${cli_source_revision}"
 pipx install --force "$cli_install_source"
 
@@ -82,7 +86,8 @@ systemctl enable --now ssh
 tofu version
 gh --version
 install -d -m 0755 /var/lib/launch-control-workstation
-date --iso-8601=seconds > /var/lib/launch-control-workstation/bootstrap-completed
 runuser -u ubuntu -- env HOME=/home/ubuntu LCW_REGION="$bootstrap_region" \
   LCW_KEY_NAME="$studio_key_name" workstation doctor
+date --iso-8601=seconds > /var/lib/launch-control-workstation/bootstrap-completed
+trap - ERR
 echo "Bootstrap complete. After first login, run: gh auth login"

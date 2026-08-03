@@ -192,7 +192,10 @@ def main(argv: Sequence[str] | None = None) -> int:
             pending = "; ".join(report.errors)
             logging.info(f"Health checks still pending: {pending}. Retrying in 10s...")
 
-        wait_until_healthy(instance, config, on_pending=report_pending)
+        wait_until_healthy(
+            instance, config, on_pending=report_pending,
+            on_heartbeat=lambda: logging.info("Health checks still pending; retrying in 10s..."),
+        )
         logging.ok(f"Health checks passed. ({time.monotonic() - health_started:.1f}s)")
         logging.ok("All workstation health checks passed.")
         logging.ok(f"Total launch time: {time.monotonic() - total_started:.1f}s.")
